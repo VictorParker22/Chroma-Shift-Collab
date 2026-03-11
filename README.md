@@ -12,8 +12,8 @@ Built for the **NASA Space Apps Challenge**.
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌────────────────┐
-│  ZWO ASI Camera  │────▶│  Filter Wheel │────▶│  Red + NIR     │
-│  (IMX462)        │     │  (EFW Mini)   │     │  Image Pair    │
+│ Arducam Multi-  │────▶│  Filter Wheel │────▶│  Red + NIR     │
+│ spectral Camera │     │  (EFW Mini)   │     │  Image Pair    │
 └─────────────────┘     └──────────────┘     └───────┬────────┘
                                                       │
                     ┌─────────────────────────────────┘
@@ -42,7 +42,7 @@ Built for the **NASA Space Apps Challenge**.
 | Component | Model | Purpose |
 |-----------|-------|---------|
 | Compute | NVIDIA Jetson Orin Nano 8GB | Edge AI inference |
-| Camera | ZWO ASI462MC | Multispectral imaging |
+| Camera | Arducam Multispectral Camera | Multispectral imaging |
 | Filter Wheel | ZWO EFW Mini (5-slot) | Band selection |
 | Filters | Red (640-670nm), NIR (850-880nm) | NDVI computation |
 | Storage | 1TB NVMe | Dataset & model storage |
@@ -95,7 +95,7 @@ Chroma-Shift/
 
 - NVIDIA Jetson Orin Nano (JetPack 6.x / R36.4)
 - Docker + NVIDIA Container Runtime
-- ZWO ASI camera + EFW filter wheel
+- Arducam Multispectral Camera + EFW filter wheel
 - Python 3.10+
 
 ### 1. Clone & Setup
