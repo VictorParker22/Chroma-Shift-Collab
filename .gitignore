@@ -1,0 +1,34 @@
+# ─── Secrets ───
+.env
+
+# ─── Datasets (14GB+ downloaded/augmented) ───
+datasets/
+data/
+data_field_only/
+
+# ─── Model weights & training artifacts ───
+results/dino_v2_classify/*.pth
+results/dino_v2_classify/*.onnx
+results/cached_features/
+
+# ─── Captures (raw images from camera) ───
+captures/
+
+# ─── Jetson-containers (external repo) ───
+jetson-containers/
+
+# ─── Python ───
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ─── OS ───
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ─── Docker ───
+.docker/

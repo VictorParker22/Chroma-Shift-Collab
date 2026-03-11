@@ -1,0 +1,110 @@
+# ============================================================================
+# Chroma-Shift — DINOv2 Classification Training Spec
+# ============================================================================
+# Optimized for NVIDIA Jetson Orin Nano (8 GB LPDDR5)
+#
+# Classification Task:
+#   Class 0 — healthy_vegetation
+#       Corresponds to NDVI ≥ 0.6493 (NYC Central Park computed ground-truth)
+#       Derived from 296 clear-sky HLS satellite observations (2019–2023)
+#       Combined mean NDVI = 0.6493 across Landsat + Sentinel-2 sources
+#
+#   Class 1 — stressed_soil
+#       Corresponds to NDVI < 0.6493 (below healthy vegetation threshold)
+#
+# Backbone: nv-dinov2 (NVIDIA DINOv2 foundation model, ViT-based)
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Model Configuration
+# ---------------------------------------------------------------------------
+model:
+  backbone: "nv-dinov2"
+  # Use the ViT-Small variant for Jetson memory constraints
+  # ViT-S/14: 21M params — fits comfortably in 8 GB LPDDR5
+  arch: "vit_small"
+  patch_size: 14
+  freeze_backbone: true              # Frozen backbone = faster training + less VRAM
+  pretrained: true
+
+  head:
+    type: "linear"
+    num_classes: 2                    # healthy_vegetation, stressed_soil
+    in_features: 384                  # ViT-Small hidden dim
+    dropout_rate: 0.1
+
+# ---------------------------------------------------------------------------
+# Dataset Configuration
+# ---------------------------------------------------------------------------
+dataset:
+  # Folder-per-class structure expected by TAO classification
+  train_dataset:
+    data_path: "/workspace/data/train"
+    # Subdirectories:
+    #   healthy_vegetation/   — images with NDVI ≥ 0.617
+    #   stressed_soil/        — images with NDVI < 0.617
+
+  val_dataset:
+    data_path: "/workspace/data/val"
+    # Same subdirectory structure as train
+
+  image_config:
+    image_width: 224
+    image_height: 224
+    channels: 3                       # Red + NIR captured as 3-ch for ViT input
+    mean: [0.485, 0.456, 0.406]       # ImageNet normalization (DINOv2 pretrained)
+    std: [0.229, 0.224, 0.225]
+
+  augmentation:
+    random_horizontal_flip: true
+    random_vertical_flip: true
+    random_rotation: 15               # degrees — slight tilt for field variance
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.1
+      hue: 0.05
+
+# ---------------------------------------------------------------------------
+# Training Configuration — Tuned for Jetson Orin Nano (8 GB)
+# ---------------------------------------------------------------------------
+train:
+  num_epochs: 30
+  batch_size: 16                      # Conservative for 8 GB LPDDR5
+  val_batch_size: 16
+  num_workers: 2                      # Orin Nano has 6 ARM cores; keep headroom
+
+  optimizer:
+    type: "adamw"
+    lr: 1.0e-3                        # Higher LR since backbone is frozen
+    weight_decay: 0.01
+
+  scheduler:
+    type: "cosine"
+    warmup_epochs: 3
+    min_lr: 1.0e-6
+
+  # Mixed precision for Orin Nano Ampere GPU
+  amp: true
+
+  # Checkpointing
+  checkpoint_interval: 5
+  results_dir: "/workspace/results/dino_v2_classify"
+
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+evaluate:
+  batch_size: 16
+  top_k: 1
+  results_dir: "/workspace/results/dino_v2_classify"
+
+# ---------------------------------------------------------------------------
+# Export — TensorRT for Jetson deployment
+# ---------------------------------------------------------------------------
+export:
+  onnx_file: "/workspace/results/dino_v2_classify/model.onnx"
+  tensorrt:
+    data_type: "fp16"                 # Orin Nano Ampere supports FP16 natively
+    workspace_size: 2048              # MB — fits within Orin Nano memory budget
+    batch_size: 1                     # Single-image inference for field deployment
