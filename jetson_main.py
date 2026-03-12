@@ -537,12 +537,68 @@ def main():
     push_heartbeat(sb, "scanning", 0, 0, 0)
     print("  Initial heartbeat pushed 💓")
 
-    # --- Init AI Classifier (optional) ---
+    # --- Init AI Classifier (TensorRT > PyTorch > NDVI-only) ---
     ai_classify = None
-    if os.path.isfile(AI_MODEL_PATH):
+    AI_ENGINE_PATH = os.path.join(
+        SCRIPT_DIR, "results", "dino_v2_classify", "chroma_shift_fp16.engine"
+    )
+
+    # ── Try TensorRT first (FP16, ~20ms/frame on GPU) ──
+    if os.path.isfile(AI_ENGINE_PATH):
         try:
-            print("  Loading DINOv2 classifier …", end=" ", flush=True)
-            # Import here to avoid hard dependency on torch for non-AI runs
+            print("  Loading TensorRT FP16 engine …", end=" ", flush=True)
+            from convert_tensorrt import TRTClassifier, CLASSES as AI_CLASSES
+
+            _trt_cls = TRTClassifier(AI_ENGINE_PATH)
+
+            # Warmup
+            _dummy = np.random.randn(1, 3, 168, 168).astype(np.float32)
+            for _ in range(3):
+                _trt_cls.predict(_dummy)
+
+            def _classify_frame_trt(frame):
+                """Classify a raw OpenCV BGR frame using TensorRT."""
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                from PIL import Image as PILImage
+                img = PILImage.fromarray(rgb)
+                return _trt_cls.classify_image_pil(img)
+
+            # Add a PIL classify method to TRTClassifier
+            def _classify_pil(self, pil_img):
+                pil_img = pil_img.resize((168, 168), PILImage.BILINEAR)
+                arr = np.array(pil_img, dtype=np.float32) / 255.0
+                mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+                std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+                arr = (arr - mean) / std
+                arr = arr.transpose(2, 0, 1)[np.newaxis, ...]
+                probs = self.predict(arr)
+                idx = int(np.argmax(probs))
+                return {
+                    "class": AI_CLASSES[idx],
+                    "confidence": float(probs[idx]) * 100,
+                    "healthy_prob": float(probs[0]),
+                    "stressed_prob": float(probs[1]),
+                }
+
+            from PIL import Image as PILImage
+            TRTClassifier.classify_image_pil = _classify_pil
+
+            def _classify_frame(frame):
+                """Classify a raw OpenCV BGR frame via TensorRT."""
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = PILImage.fromarray(rgb)
+                return _trt_cls.classify_image_pil(img)
+
+            ai_classify = _classify_frame
+            print(f"TensorRT FP16 loaded (~20ms/frame) ✅")
+        except Exception as e:
+            print(f"\n  ⚠️  TensorRT load failed: {e}")
+            print("      Falling back to PyTorch …")
+
+    # ── Fall back to PyTorch (CPU, ~1000ms/frame) ──
+    if ai_classify is None and os.path.isfile(AI_MODEL_PATH):
+        try:
+            print("  Loading DINOv2 classifier (PyTorch) …", end=" ", flush=True)
             import torch
             import torch.nn as nn
             import torch.nn.functional as F
@@ -600,12 +656,14 @@ def main():
 
             ai_classify = _classify_frame
             val_acc = _ckpt.get("val_acc", "?")
-            print(f"DINOv2 ViT-S/14 loaded (val_acc={val_acc}%) ✅")
+            print(f"DINOv2 ViT-S/14 loaded (val_acc={val_acc}%, ~1s/frame CPU) ✅")
         except Exception as e:
             print(f"\n  ⚠️  AI classifier not available: {e}")
             print("      (NDVI-only mode — scans will continue without AI)")
-    else:
-        print(f"  🤖 No AI model at {AI_MODEL_PATH} — NDVI-only mode")
+
+    if ai_classify is None:
+        print(f"  🤖 No AI model found — NDVI-only mode")
+        print(f"      (run convert_tensorrt.py to build TensorRT engine)")
 
     print()  # blank line before scan loop
 

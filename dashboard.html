@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chroma-Shift — Vegetation Monitor</title>
+  <meta name="description" content="Real-time multispectral vegetation monitoring dashboard for NYC Central Park">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-card: #111827;
+      --bg-card-hover: #1a2332;
+      --border: #1e293b;
+      --border-glow: rgba(34, 197, 94, 0.15);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --green: #22c55e;
+      --green-dim: rgba(34, 197, 94, 0.15);
+      --red: #ef4444;
+      --red-dim: rgba(239, 68, 68, 0.15);
+      --amber: #f59e0b;
+      --amber-dim: rgba(245, 158, 11, 0.15);
+      --blue: #3b82f6;
+      --blue-dim: rgba(59, 130, 246, 0.15);
+      --purple: #a855f7;
+      --cyan: #06b6d4;
+      --radius: 12px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.3);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ─── Header ─── */
+    .header {
+      background: linear-gradient(135deg, #0a0e17 0%, #111827 50%, #0f1a2e 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(20px);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo {
+      width: 42px;
+      height: 42px;
+      background: linear-gradient(135deg, var(--green), #15803d);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .header h1 span { color: var(--green); }
+
+    .header-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-pill.online {
+      background: var(--green-dim);
+      color: var(--green);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+    }
+
+    .status-pill.offline {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+
+    .pulse-dot {
+      width: 8px; height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+    }
+
+    /* ─── Layout ─── */
+    .dashboard {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .row { display: grid; gap: 20px; }
+    .row-4 { grid-template-columns: repeat(4, 1fr); }
+    .row-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .row-2 { grid-template-columns: 2fr 1fr; }
+    .row-2-equal { grid-template-columns: 1fr 1fr; }
+
+    /* ─── Cards ─── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: all 0.2s ease;
+    }
+
+    .card:hover {
+      border-color: rgba(34, 197, 94, 0.2);
+      box-shadow: 0 0 30px rgba(34, 197, 94, 0.05);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .card-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    /* ─── Stat Cards ─── */
+    .stat-value {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1.1;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .stat-change {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+
+    .stat-change.up { background: var(--green-dim); color: var(--green); }
+    .stat-change.down { background: var(--red-dim); color: var(--red); }
+    .stat-change.neutral { background: var(--blue-dim); color: var(--blue); }
+
+    /* ─── Chart ─── */
+    .chart-container {
+      position: relative;
+      height: 280px;
+      margin-top: 8px;
+    }
+
+    /* ─── Zone Grid ─── */
+    .zone-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .zone-tile {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .zone-tile:hover {
+      transform: translateY(-2px);
+      border-color: rgba(34,197,94,0.3);
+    }
+
+    .zone-id {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .zone-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    .zone-ndvi {
+      font-size: 24px;
+      font-weight: 800;
+      margin-top: 8px;
+      letter-spacing: -0.5px;
+    }
+
+    .zone-status {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .zone-status.healthy { background: var(--green-dim); color: var(--green); }
+    .zone-status.watch { background: var(--amber-dim); color: var(--amber); }
+    .zone-status.stress { background: var(--red-dim); color: var(--red); }
+
+    /* ─── Alert Feed ─── */
+    .alert-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 360px;
+      overflow-y: auto;
+    }
+
+    .alert-feed::-webkit-scrollbar { width: 4px; }
+    .alert-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .alert-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      transition: all 0.15s;
+    }
+
+    .alert-item:hover {
+      background: rgba(255,255,255,0.04);
+    }
+
+    .alert-severity {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .alert-severity.critical { background: var(--red-dim); }
+    .alert-severity.high { background: rgba(249, 115, 22, 0.15); }
+    .alert-severity.medium { background: var(--amber-dim); }
+
+    .alert-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .alert-message {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .alert-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ─── Weather ─── */
+    .weather-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .weather-item {
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+
+    .weather-item .wi-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .weather-item .wi-value {
+      font-size: 22px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .weather-item .wi-unit {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .weather-desc {
+      text-align: center;
+      padding: 14px;
+      background: rgba(59, 130, 246, 0.08);
+      border-radius: 10px;
+      margin-top: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--blue);
+    }
+
+    /* ─── System Health ─── */
+    .sys-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .sys-bar:last-child { border-bottom: none; }
+
+    .sys-bar-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      width: 80px;
+    }
+
+    .sys-bar-track {
+      flex: 1;
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .sys-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.5s ease;
+    }
+
+    .sys-bar-value {
+      font-size: 12px;
+      font-weight: 600;
+      width: 50px;
+      text-align: right;
+    }
+
+    /* ─── Empty state ─── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .empty-state .empty-icon { font-size: 32px; margin-bottom: 12px; }
+    .empty-state .empty-text { font-size: 13px; }
+
+    /* ─── AI Distribution ─── */
+    .ai-bar {
+      display: flex;
+      height: 24px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .ai-bar-segment {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      transition: width 0.5s;
+    }
+
+    .ai-legend {
+      display: flex;
+      gap: 20px;
+      margin-top: 10px;
+      justify-content: center;
+    }
+
+    .ai-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .ai-legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 3px;
+    }
+
+    /* ─── Last updated ─── */
+    .last-updated {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 16px;
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 1024px) {
+      .row-4 { grid-template-columns: repeat(2, 1fr); }
+      .row-3 { grid-template-columns: 1fr; }
+      .row-2 { grid-template-columns: 1fr; }
+      .row-2-equal { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .row-4 { grid-template-columns: 1fr; }
+      .header { padding: 16px; flex-direction: column; gap: 12px; }
+      .dashboard { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ Header ═══ -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">🌿</div>
+      <div>
+        <h1>Chroma-<span>Shift</span></h1>
+        <div class="header-subtitle">Multispectral Vegetation Monitor — Central Park, NYC</div>
+      </div>
+    </div>
+    <div class="status-pill online" id="systemStatus">
+      <div class="pulse-dot"></div>
+      <span id="statusText">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- ═══ Dashboard ═══ -->
+  <main class="dashboard">
+
+    <!-- Row 1: Stat Cards -->
+    <section class="row row-4">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Current NDVI</span>
+          <div class="card-icon" style="background:var(--green-dim)">📊</div>
+        </div>
+        <div class="stat-value" id="currentNdvi" style="color:var(--green)">—</div>
+        <div class="stat-label">Latest field reading</div>
+        <div class="stat-change neutral" id="ndviChange">Awaiting data</div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">AI Classification</span>
+          <div class="card-icon" style="background:var(--blue-dim)">🤖</div>
+        </div>
+        <div class="stat-value" id="aiClass" style="color:var(--blue); font-size:20px;">—</div>
+        <div class="stat-label" id="aiConfidence">DINOv2 ViT-S/14</div>
+        <div class="stat-change neutral" id="aiTag">Model ready</div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Temperature</span>
+          <div class="card-icon" style="background:var(--amber-dim)">🌡️</div>
+        </div>
+        <div class="stat-value" id="tempValue" style="color:var(--amber)">—</div>
+        <div class="stat-label" id="weatherDesc">NWS Station KNYC</div>
+        <div class="stat-change neutral" id="humidityBadge">—</div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Active Alerts</span>
+          <div class="card-icon" style="background:var(--red-dim)">🚨</div>
+        </div>
+        <div class="stat-value" id="alertCount" style="color:var(--red)">0</div>
+        <div class="stat-label">Last 24 hours</div>
+        <div class="stat-change neutral" id="alertBadge">—</div>
+      </div>
+    </section>
+
+    <!-- Row 2: NDVI Trend Chart + Alert Feed -->
+    <section class="row row-2">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">NDVI Trend</span>
+          <div style="display:flex;gap:6px;">
+            <button onclick="loadChart('24h')" class="chart-btn" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);font-size:11px;cursor:pointer;">24h</button>
+            <button onclick="loadChart('7d')" class="chart-btn" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);font-size:11px;cursor:pointer;">7d</button>
+            <button onclick="loadChart('30d')" class="chart-btn" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);font-size:11px;cursor:pointer;">30d</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="ndviChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Recent Alerts</span>
+        </div>
+        <div class="alert-feed" id="alertFeed">
+          <div class="empty-state">
+            <div class="empty-icon">🔔</div>
+            <div class="empty-text">No recent alerts</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Row 3: Field Zones + Weather + AI Distribution -->
+    <section class="row row-3">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Field Zones</span>
+        </div>
+        <div class="zone-grid" id="zoneGrid">
+          <div class="empty-state">
+            <div class="empty-icon">🗺️</div>
+            <div class="empty-text">Loading zones…</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Weather Conditions</span>
+        </div>
+        <div id="weatherSection">
+          <div class="weather-grid" id="weatherGrid"></div>
+          <div class="weather-desc" id="weatherDescFull">Fetching weather…</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">System Health</span>
+        </div>
+        <div id="sysHealth">
+          <div class="sys-bar">
+            <span class="sys-bar-label">CPU Temp</span>
+            <div class="sys-bar-track"><div class="sys-bar-fill" id="cpuBar" style="width:0%;background:var(--green);"></div></div>
+            <span class="sys-bar-value" id="cpuVal">—</span>
+          </div>
+          <div class="sys-bar">
+            <span class="sys-bar-label">Storage</span>
+            <div class="sys-bar-track"><div class="sys-bar-fill" id="storageBar" style="width:0%;background:var(--blue);"></div></div>
+            <span class="sys-bar-value" id="storageVal">—</span>
+          </div>
+          <div class="sys-bar">
+            <span class="sys-bar-label">Uptime</span>
+            <div class="sys-bar-track"><div class="sys-bar-fill" id="uptimeBar" style="width:100%;background:var(--cyan);"></div></div>
+            <span class="sys-bar-value" id="uptimeVal">—</span>
+          </div>
+          <div class="sys-bar">
+            <span class="sys-bar-label">Mode</span>
+            <div class="sys-bar-track"><div class="sys-bar-fill" style="width:100%;background:var(--purple);"></div></div>
+            <span class="sys-bar-value" id="modeVal">—</span>
+          </div>
+          <div style="margin-top:14px;">
+            <div class="card-title" style="margin-bottom:8px;">AI Classification Distribution</div>
+            <div class="ai-bar" id="aiBar">
+              <div class="ai-bar-segment" style="width:50%;background:var(--green);">—</div>
+              <div class="ai-bar-segment" style="width:50%;background:var(--amber);">—</div>
+            </div>
+            <div class="ai-legend">
+              <div class="ai-legend-item"><div class="ai-legend-dot" style="background:var(--green)"></div>Healthy</div>
+              <div class="ai-legend-item"><div class="ai-legend-dot" style="background:var(--amber)"></div>Stressed</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="last-updated" id="lastUpdated">Connecting to Supabase…</div>
+
+  </main>
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════════════
+    // Supabase Config
+    // ═══════════════════════════════════════════════════════════════════════
+    const SUPABASE_URL = 'https://nvpsbdxabhuwfmwyoqra.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52cHNiZHhhYmh1d2Ztd3lvcXJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3NDU1NjAsImV4cCI6MjA4ODMyMTU2MH0.L0KvSQp1wmwMPrrImwbGGrpcOBX6BJT-aSPy46I3YLU';
+
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let ndviChart = null;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Data Loaders
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function loadLatestNDVI() {
+      const { data, error } = await sb
+        .from('ndvi_readings')
+        .select('*')
+        .eq('source', 'jetson')
+        .order('created_at', { ascending: false })
+        .limit(2);
+
+      if (data && data.length > 0) {
+        const latest = data[0];
+        document.getElementById('currentNdvi').textContent = latest.value.toFixed(4);
+
+        const color = latest.value >= 0.25 ? 'var(--green)' : 'var(--red)';
+        document.getElementById('currentNdvi').style.color = color;
+
+        if (latest.ai_class) {
+          const label = latest.ai_class === 'healthy_vegetation' ? 'Healthy Vegetation' : 'Stressed / Bare';
+          document.getElementById('aiClass').textContent = label;
+          document.getElementById('aiClass').style.color = latest.ai_class === 'healthy_vegetation' ? 'var(--green)' : 'var(--amber)';
+          if (latest.ai_confidence) {
+            document.getElementById('aiConfidence').textContent = `Confidence: ${(latest.ai_confidence * 100).toFixed(1)}%`;
+            document.getElementById('aiTag').textContent = latest.ai_class === 'healthy_vegetation' ? '🌿 Healthy' : '🟤 Stressed';
+            document.getElementById('aiTag').className = `stat-change ${latest.ai_class === 'healthy_vegetation' ? 'up' : 'down'}`;
+          }
+        }
+
+        if (data.length > 1) {
+          const prev = data[1];
+          const diff = latest.value - prev.value;
+          const el = document.getElementById('ndviChange');
+          el.textContent = `${diff >= 0 ? '↑' : '↓'} ${Math.abs(diff).toFixed(4)}`;
+          el.className = `stat-change ${diff >= 0 ? 'up' : 'down'}`;
+        }
+      }
+    }
+
+    async function loadAlerts() {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await sb
+        .from('alerts')
+        .select('*')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      document.getElementById('alertCount').textContent = data ? data.length : 0;
+
+      const feed = document.getElementById('alertFeed');
+      if (!data || data.length === 0) {
+        feed.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">No alerts in the last 24 hours</div></div>`;
+        document.getElementById('alertBadge').textContent = 'All clear';
+        document.getElementById('alertBadge').className = 'stat-change up';
+        return;
+      }
+
+      const sevIcon = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
+      const alertCountEl = document.getElementById('alertCount');
+      alertCountEl.style.color = data.length > 5 ? 'var(--red)' : 'var(--amber)';
+      document.getElementById('alertBadge').textContent = `${data.length} active`;
+      document.getElementById('alertBadge').className = 'stat-change down';
+
+      feed.innerHTML = data.map(a => `
+        <div class="alert-item">
+          <div class="alert-severity ${a.severity}">${sevIcon[a.severity] || '⚪'}</div>
+          <div>
+            <div class="alert-title">${a.title || a.stress_type}</div>
+            <div class="alert-message">${a.message || `NDVI: ${a.ndvi_value}`}</div>
+            <div class="alert-time">${timeAgo(a.created_at)}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadFieldZones() {
+      const { data, error } = await sb
+        .from('field_zones')
+        .select('*')
+        .order('id');
+
+      const grid = document.getElementById('zoneGrid');
+      if (!data || data.length === 0) {
+        grid.innerHTML = `<div class="empty-state"><div class="empty-icon">🗺️</div><div class="empty-text">No zones configured</div></div>`;
+        return;
+      }
+
+      grid.innerHTML = data.map(z => {
+        const ndvi = z.ndvi_current !== null ? z.ndvi_current.toFixed(4) : '—';
+        const status = z.status || 'healthy';
+        const ndviColor = z.ndvi_current >= 0.5 ? 'var(--green)' : z.ndvi_current >= 0.25 ? 'var(--amber)' : 'var(--red)';
+        return `
+          <div class="zone-tile">
+            <div class="zone-id">${z.id}</div>
+            <div class="zone-name">${z.name || ''}</div>
+            <div class="zone-ndvi" style="color:${ndviColor}">${ndvi}</div>
+            <div class="zone-status ${status}">${status}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadWeather() {
+      const { data, error } = await sb
+        .from('weather_data')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (!data || data.length === 0) {
+        document.getElementById('weatherDescFull').textContent = 'No weather data yet';
+        document.getElementById('tempValue').textContent = '—';
+        return;
+      }
+
+      const w = data[0];
+      document.getElementById('tempValue').textContent = w.temp_c !== null ? `${w.temp_c}°` : '—';
+      document.getElementById('weatherDesc').textContent = w.description || 'NWS Station KNYC';
+
+      const humEl = document.getElementById('humidityBadge');
+      if (w.humidity_pct !== null) {
+        humEl.textContent = `💧 ${w.humidity_pct.toFixed(0)}% RH`;
+        humEl.className = 'stat-change neutral';
+      }
+
+      const items = [
+        { label: 'Temp', value: w.temp_f !== null ? `${w.temp_f}` : '—', unit: '°F' },
+        { label: 'Humidity', value: w.humidity_pct !== null ? `${w.humidity_pct.toFixed(0)}` : '—', unit: '%' },
+        { label: 'Wind', value: w.wind_speed_ms !== null ? `${w.wind_speed_ms}` : '—', unit: 'm/s' },
+        { label: 'Precip 6h', value: w.precip_6h_mm !== null ? `${w.precip_6h_mm}` : '0', unit: 'mm' },
+      ];
+
+      document.getElementById('weatherGrid').innerHTML = items.map(i => `
+        <div class="weather-item">
+          <div class="wi-label">${i.label}</div>
+          <div class="wi-value">${i.value}<span class="wi-unit">${i.unit}</span></div>
+        </div>
+      `).join('');
+
+      document.getElementById('weatherDescFull').textContent = w.description || 'Conditions normal';
+    }
+
+    async function loadSystemHealth() {
+      const { data, error } = await sb
+        .from('system_status')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (!data || data.length === 0) {
+        document.getElementById('statusText').textContent = 'Offline';
+        document.getElementById('systemStatus').className = 'status-pill offline';
+        return;
+      }
+
+      const s = data[0];
+      const ageMs = Date.now() - new Date(s.created_at).getTime();
+      const isOnline = ageMs < 15 * 60 * 1000; // 15 min threshold
+
+      const statusEl = document.getElementById('systemStatus');
+      const textEl = document.getElementById('statusText');
+
+      if (isOnline) {
+        statusEl.className = 'status-pill online';
+        textEl.textContent = `Online — ${s.mode || 'scanning'}`;
+      } else {
+        statusEl.className = 'status-pill offline';
+        textEl.textContent = `Last seen ${timeAgo(s.created_at)}`;
+      }
+
+      // CPU temp (max ~85°C for Jetson)
+      if (s.cpu_temp_c !== null) {
+        const pct = Math.min(100, (s.cpu_temp_c / 85) * 100);
+        document.getElementById('cpuBar').style.width = pct + '%';
+        document.getElementById('cpuBar').style.background = pct > 80 ? 'var(--red)' : pct > 60 ? 'var(--amber)' : 'var(--green)';
+        document.getElementById('cpuVal').textContent = `${s.cpu_temp_c}°C`;
+      }
+
+      // Storage
+      if (s.storage_total_gb) {
+        const pct = (s.storage_used_gb / s.storage_total_gb) * 100;
+        document.getElementById('storageBar').style.width = pct + '%';
+        document.getElementById('storageBar').style.background = pct > 90 ? 'var(--red)' : 'var(--blue)';
+        document.getElementById('storageVal').textContent = `${s.storage_used_gb}/${s.storage_total_gb}`;
+      }
+
+      // Uptime
+      if (s.uptime_seconds) {
+        const hrs = Math.floor(s.uptime_seconds / 3600);
+        const mins = Math.floor((s.uptime_seconds % 3600) / 60);
+        document.getElementById('uptimeVal').textContent = `${hrs}h ${mins}m`;
+      }
+
+      document.getElementById('modeVal').textContent = s.mode || 'idle';
+    }
+
+    async function loadAIDistribution() {
+      const { data, error } = await sb
+        .from('ndvi_readings')
+        .select('ai_class')
+        .eq('source', 'jetson')
+        .not('ai_class', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (!data || data.length === 0) return;
+
+      const healthy = data.filter(r => r.ai_class === 'healthy_vegetation').length;
+      const stressed = data.length - healthy;
+      const hPct = Math.round((healthy / data.length) * 100);
+      const sPct = 100 - hPct;
+
+      const bar = document.getElementById('aiBar');
+      bar.innerHTML = `
+        <div class="ai-bar-segment" style="width:${hPct}%;background:var(--green);">${hPct}%</div>
+        <div class="ai-bar-segment" style="width:${sPct}%;background:var(--amber);">${sPct}%</div>
+      `;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // NDVI Chart
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function loadChart(range) {
+      let since;
+      const now = new Date();
+      if (range === '24h') since = new Date(now - 24 * 60 * 60 * 1000);
+      else if (range === '7d') since = new Date(now - 7 * 24 * 60 * 60 * 1000);
+      else since = new Date(now - 30 * 24 * 60 * 60 * 1000);
+
+      const { data: jetsonData } = await sb
+        .from('ndvi_readings')
+        .select('value, created_at, ai_class')
+        .eq('source', 'jetson')
+        .gte('created_at', since.toISOString())
+        .order('created_at', { ascending: true })
+        .limit(500);
+
+      const { data: satData } = await sb
+        .from('ndvi_readings')
+        .select('value, created_at')
+        .eq('source', 'satellite')
+        .gte('created_at', since.toISOString())
+        .order('created_at', { ascending: true })
+        .limit(500);
+
+      const ctx = document.getElementById('ndviChart').getContext('2d');
+
+      if (ndviChart) ndviChart.destroy();
+
+      const datasets = [];
+
+      if (jetsonData && jetsonData.length > 0) {
+        datasets.push({
+          label: 'Jetson NDVI',
+          data: jetsonData.map(r => ({ x: new Date(r.created_at), y: r.value })),
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34, 197, 94, 0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointBackgroundColor: jetsonData.map(r =>
+            r.ai_class === 'healthy_vegetation' ? '#22c55e' : r.ai_class === 'stressed_soil' ? '#f59e0b' : '#3b82f6'
+          ),
+          borderWidth: 2,
+        });
+      }
+
+      if (satData && satData.length > 0) {
+        datasets.push({
+          label: 'Satellite NDVI',
+          data: satData.map(r => ({ x: new Date(r.created_at), y: r.value })),
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59, 130, 246, 0.05)',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 2,
+          borderWidth: 1.5,
+          borderDash: [4, 4],
+        });
+      }
+
+      // Baseline line
+      datasets.push({
+        label: 'Baseline (0.6493)',
+        data: [
+          { x: since, y: 0.6493 },
+          { x: now, y: 0.6493 },
+        ],
+        borderColor: 'rgba(168, 85, 247, 0.4)',
+        borderWidth: 1,
+        borderDash: [8, 4],
+        pointRadius: 0,
+        fill: false,
+      });
+
+      ndviChart = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { intersect: false, mode: 'nearest' },
+          scales: {
+            x: {
+              type: 'timeseries',
+              time: { tooltipFormat: 'MMM d, HH:mm' },
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#64748b', font: { size: 11 } },
+            },
+            y: {
+              min: -0.3,
+              max: 1.0,
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#64748b', font: { size: 11 } },
+            },
+          },
+          plugins: {
+            legend: {
+              labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true },
+            },
+            tooltip: {
+              backgroundColor: '#1e293b',
+              titleColor: '#f1f5f9',
+              bodyColor: '#94a3b8',
+              borderColor: '#334155',
+              borderWidth: 1,
+              padding: 10,
+              cornerRadius: 8,
+            },
+          },
+        },
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Helpers
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function timeAgo(iso) {
+      const ms = Date.now() - new Date(iso).getTime();
+      const secs = Math.floor(ms / 1000);
+      if (secs < 60) return `${secs}s ago`;
+      const mins = Math.floor(secs / 60);
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return `${hrs}h ago`;
+      return `${Math.floor(hrs / 24)}d ago`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Init + Auto-refresh
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function refresh() {
+      try {
+        await Promise.all([
+          loadLatestNDVI(),
+          loadAlerts(),
+          loadFieldZones(),
+          loadWeather(),
+          loadSystemHealth(),
+          loadAIDistribution(),
+        ]);
+        document.getElementById('lastUpdated').textContent =
+          `Last refreshed: ${new Date().toLocaleTimeString()} — auto-refresh every 30s`;
+      } catch (e) {
+        console.error('Refresh error:', e);
+        document.getElementById('lastUpdated').textContent = `Error: ${e.message}`;
+      }
+    }
+
+    // Initial load
+    refresh();
+    loadChart('7d');
+
+    // Auto-refresh every 30 seconds
+    setInterval(refresh, 30000);
+    setInterval(() => loadChart('7d'), 60000);
+  </script>
+</body>
+</html>
