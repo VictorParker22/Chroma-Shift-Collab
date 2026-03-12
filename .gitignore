@@ -5,6 +5,7 @@
 datasets/
 data/
 data_field_only/
+data_field_v2/
 
 # ─── Model weights & training artifacts ───
 results/dino_v2_classify/*.pth
