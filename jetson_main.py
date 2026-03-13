@@ -37,6 +37,10 @@ import numpy as np
 from dotenv import load_dotenv
 from supabase import create_client
 from weather import get_current_weather, assess_weather_stress, correlate_ndvi_weather, push_weather
+from radiometric import (
+    apply_corrections, solar_position, get_seasonal_baseline,
+    KalmanNDVI, cloud_transmittance
+)
 
 # AI Classifier — lazy-loaded inside Docker container
 # When running natively (without container), set AI_MODEL_PATH to skip
@@ -378,30 +382,76 @@ def push_heartbeat(sb, mode, filter_pos, scans, alerts_count):
 # Single Scan Cycle
 # ═══════════════════════════════════════════════════════════════════════════
 
-def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count, weather=None, ai_classify=None):
+def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
+              weather=None, ai_classify=None,
+              scene_analyzer=None, kalman_filters=None):
     """
     Full pipeline for one zone:
-      capture → NDVI → AI classify → compare (weather-adjusted) → alert → log → update → heartbeat
+      capture → radiometric correction → VILA scene analysis → corrected NDVI
+      → AI classify → compare (seasonal + weather-adjusted) → alert → log
     """
     zone = FIELD_ZONES[zone_id]
     zone_name = zone["name"]
-    baseline = zone["baseline"]
     now_str = datetime.now().strftime("%H:%M:%S")
+    now_utc = datetime.now(timezone.utc)
 
     print(f"  [{now_str}] Scanning {zone_id} ({zone_name}) …", end=" ", flush=True)
 
-    # 1. Capture Red
+    # 1. Capture Red (with camera metadata)
     efw.move_to(FILTER_SLOT_RED)
     red_frame = flush_and_capture(cap)
+    red_exposure = cap.get(cv2.CAP_PROP_EXPOSURE)
+    red_gain = cap.get(cv2.CAP_PROP_GAIN)
 
-    # 2. Capture NIR
+    # 2. Capture NIR (with camera metadata)
     efw.move_to(FILTER_SLOT_NIR)
     nir_frame = flush_and_capture(cap)
+    nir_exposure = cap.get(cv2.CAP_PROP_EXPOSURE)
+    nir_gain = cap.get(cv2.CAP_PROP_GAIN)
 
-    # 3. Compute NDVI
-    ndvi_map, mean_ndvi = compute_ndvi(red_frame, nir_frame)
+    # 3. Solar position (pure math, no API)
+    solar = solar_position(now_utc)
 
-    # 4. Weather-NDVI correlation
+    # 4. VILA Scene Analysis (VLM or heuristic fallback)
+    vila_result = None
+    vila_overrides = None
+    if scene_analyzer is not None:
+        try:
+            vila_result = scene_analyzer.analyze(
+                red_frame, nir_frame, weather, solar, now_utc
+            )
+            vila_overrides = vila_result.get("corrections")
+            vila_expl = vila_result.get("explanation", "")
+            vila_conf = vila_result.get("confidence", 0.5)
+            print(f"🧠VILA({vila_conf:.0%})", end=" ")
+        except Exception as e:
+            print(f"⚠️VILA:{e}", end=" ")
+
+    # 5. Radiometric Correction Pipeline (7 layers)
+    cloud_cover = weather.get("cloud_cover_pct") if weather else None
+    corrected = apply_corrections(
+        cv2.cvtColor(red_frame, cv2.COLOR_BGR2GRAY),
+        cv2.cvtColor(nir_frame, cv2.COLOR_BGR2GRAY),
+        red_exposure=red_exposure, red_gain=red_gain,
+        nir_exposure=nir_exposure, nir_gain=nir_gain,
+        timestamp=now_utc,
+        cloud_cover_pct=cloud_cover,
+        vila_overrides=vila_overrides,
+    )
+    mean_ndvi = corrected["mean_ndvi"]
+    quality_flags = corrected.get("quality_flags", [])
+
+    # 6. Kalman temporal filter (Layer 7 — per-zone)
+    raw_ndvi = mean_ndvi
+    if kalman_filters and zone_id in kalman_filters:
+        mean_ndvi = round(kalman_filters[zone_id].update(mean_ndvi), 4)
+
+    # 7. Seasonal baseline (Layer 6)
+    seasonal = corrected.get("seasonal", get_seasonal_baseline(now_utc))
+    baseline = seasonal["baseline"]
+    season = seasonal["season"]
+
+    # 8. Weather-NDVI correlation
     if weather:
         corr = correlate_ndvi_weather(mean_ndvi, baseline, weather)
         weather_summary = corr["weather_summary"]
@@ -410,15 +460,14 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count, weather=None, ai_c
         weather_summary = "N/A"
         weather_mod = 0.0
 
-    # 5. Compare to baseline → stress detection
+    # 9. Compare to seasonal baseline → stress detection
     severity, status, drop = detect_stress(mean_ndvi, baseline)
     stress_type = STRESS_TYPES.get(severity, "water_stress")
 
-    # 5b. AI Classification (DINOv2)
+    # 10. AI Classification (DINOv2 via TensorRT)
     ai_result = None
     if ai_classify is not None:
         try:
-            # Classify the Red frame
             ai_result = ai_classify(red_frame)
             ai_class = ai_result["class"]
             ai_conf = ai_result["confidence"]
@@ -427,14 +476,12 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count, weather=None, ai_c
         except Exception as e:
             print(f"⚠️AI:{e}", end=" ")
 
-    # 6. Upload capture + push alert if stressed (with weather context)
+    # 11. Upload capture + push alert if stressed
     new_alerts = 0
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     if status != "healthy":
-        # Upload stress capture to Supabase Storage
         image_url = None
         try:
-            # Create a combined Red+NIR side-by-side image for the alert
             combined = np.hstack([red_frame, nir_frame])
             image_url = upload_capture(sb, combined, zone_id, ts, "stress")
             print(f"📸", end=" ")
@@ -446,7 +493,7 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count, weather=None, ai_c
         new_alerts = 1
         print(f"🚨 {severity.upper()}", end=" ")
 
-    # 7. Log NDVI reading (include AI result)
+    # 12. Log NDVI reading (with correction metadata + VILA explanation)
     ndvi_payload = {
         "value":      round(mean_ndvi, 4),
         "field_zone": zone_id,
@@ -458,24 +505,28 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count, weather=None, ai_c
         ndvi_payload["ai_confidence"] = round(ai_result["confidence"] / 100, 4)
     sb.table("ndvi_readings").insert(ndvi_payload).execute()
 
-    # 8. Update field zone
+    # 13. Update field zone
     update_field_zone(sb, zone_id, mean_ndvi, status)
 
-    # 9. Push weather data (correlated with this NDVI reading)
+    # 14. Push weather data
     if weather:
         try:
             push_weather(sb, weather, ndvi=mean_ndvi, field_zone=zone_id)
         except Exception as e:
             print(f"⚠️weather_push:{e}", end=" ")
 
-    # 10. Heartbeat
+    # 15. Heartbeat
     push_heartbeat(sb, "scanning", FILTER_SLOT_NIR, scan_count, alert_count + new_alerts)
 
     # Summary
     marker = "✅" if status == "healthy" else "⚠️"
-    print(f"NDVI={mean_ndvi:.4f} (baseline {baseline}) → {status} {marker}")
+    print(f"NDVI={mean_ndvi:.4f} (raw={raw_ndvi:.4f}, baseline={baseline:.2f}/{season}) → {status} {marker}")
     if ai_result:
-        print(f"           🤖 AI: {ai_result['class']} ({ai_result['confidence']:.1f}% confidence)")
+        print(f"           🤖 AI: {ai_result['class']} ({ai_result['confidence']:.1f}%)")
+    if vila_result:
+        print(f"           🧠 VILA: {vila_result.get('explanation', '')[:80]}")
+    if quality_flags:
+        print(f"           ⚠️  Flags: {', '.join(quality_flags)}")
     if weather:
         print(f"           🌤️  {weather_summary} (modifier: {weather_mod:+.3f})")
 
@@ -536,6 +587,28 @@ def main():
     # --- Push initial heartbeat ---
     push_heartbeat(sb, "scanning", 0, 0, 0)
     print("  Initial heartbeat pushed 💓")
+
+    # --- Init Radiometric Correction (per-zone Kalman filters) ---
+    kalman_filters = {zone_id: KalmanNDVI() for zone_id in zones}
+    print(f"  Kalman filters initialized for {len(zones)} zones 📊")
+
+    # --- Init VILA Scene Analyzer (VLM or heuristic fallback) ---
+    scene_analyzer = None
+    try:
+        from vila_analyzer import VilaSceneAnalyzer
+        scene_analyzer = VilaSceneAnalyzer()
+    except Exception as e:
+        print(f"  ⚠️  VILA scene analyzer not available: {e}")
+        print("      (radiometric corrections will use heuristic fallback)")
+        try:
+            from vila_analyzer import VilaSceneAnalyzer
+            scene_analyzer = VilaSceneAnalyzer.__new__(VilaSceneAnalyzer)
+            scene_analyzer.model = None
+            scene_analyzer.model_name = ""
+            scene_analyzer._fallback = True
+            print("      Heuristic fallback loaded ✅")
+        except Exception:
+            pass
 
     # --- Init AI Classifier (TensorRT > PyTorch > NDVI-only) ---
     ai_classify = None
@@ -695,7 +768,9 @@ def main():
                     break
                 try:
                     new_alerts = scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
-                                           weather, ai_classify=ai_classify)
+                                           weather, ai_classify=ai_classify,
+                                           scene_analyzer=scene_analyzer,
+                                           kalman_filters=kalman_filters)
                     scan_count += 1
                     alert_count += new_alerts
                 except Exception as e:
