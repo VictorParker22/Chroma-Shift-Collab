@@ -555,19 +555,21 @@ def apply_corrections(red_frame, nir_frame,
             quality_flags.append(
                 f"solar_zenith_extreme ({solar_info['zenith_deg']:.1f}°)"
             )
+            quality_flags.append("low_confidence")
+            corrections["L3_solar"] = {
+                "zenith_deg": round(solar_info["zenith_deg"], 1),
+                "elevation_deg": round(solar_info["elevation_deg"], 1),
+                "cos_zenith": round(cos_z, 4),
+                "status": "skipped_extreme_zenith",
+            }
         else:
             red = correct_solar_zenith(red, cos_z)
             nir = correct_solar_zenith(nir, cos_z)
-            if red is None or nir is None:
-                quality_flags.append("capture_rejected_low_sun")
-                red = red_frame.astype(np.float32)
-                nir = nir_frame.astype(np.float32)
-
-        corrections["L3_solar"] = {
-            "zenith_deg": round(solar_info["zenith_deg"], 1),
-            "elevation_deg": round(solar_info["elevation_deg"], 1),
-            "cos_zenith": round(cos_z, 4),
-        }
+            corrections["L3_solar"] = {
+                "zenith_deg": round(solar_info["zenith_deg"], 1),
+                "elevation_deg": round(solar_info["elevation_deg"], 1),
+                "cos_zenith": round(cos_z, 4),
+            }
     else:
         corrections["L3_solar"] = "skipped"
 

@@ -503,7 +503,19 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
     if ai_result:
         ndvi_payload["ai_class"] = ai_result["class"]
         ndvi_payload["ai_confidence"] = round(ai_result["confidence"] / 100, 4)
-    sb.table("ndvi_readings").insert(ndvi_payload).execute()
+    if vila_result:
+        ndvi_payload["vila_explanation"] = vila_result.get("explanation", "")[:500]
+    if quality_flags:
+        ndvi_payload["quality_flags"] = ", ".join(quality_flags)
+    try:
+        sb.table("ndvi_readings").insert(ndvi_payload).execute()
+    except Exception as e:
+        # Supabase may not have vila_explanation/quality_flags columns yet
+        # Fall back to minimal payload
+        sb.table("ndvi_readings").insert({
+            "value": round(mean_ndvi, 4), "field_zone": zone_id,
+            "source": "jetson", "band_used": "NIR",
+        }).execute()
 
     # 13. Update field zone
     update_field_zone(sb, zone_id, mean_ndvi, status)
