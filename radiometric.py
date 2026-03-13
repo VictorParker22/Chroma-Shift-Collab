@@ -591,9 +591,14 @@ def apply_corrections(red_frame, nir_frame,
         corrections["L5_interframe"] = "skipped"
 
     # ── Compute NDVI ──
-    denom = nir + red
-    ndvi = np.where(denom > 0, (nir - red) / denom, 0.0)
-    valid = denom > 0
+    # Clip extreme values that can result from chained multiplicative corrections
+    red = np.clip(red, 0, 1e9)
+    nir = np.clip(nir, 0, 1e9)
+    denom = nir + red + 1e-10
+    ndvi = (nir - red) / denom
+    ndvi = np.where(np.isfinite(ndvi), ndvi, 0.0)
+    ndvi = np.clip(ndvi, -1.0, 1.0)
+    valid = np.isfinite(ndvi) & (denom > 1e-10)
     mean_ndvi = float(ndvi[valid].mean()) if valid.any() else 0.0
 
     # ── Layer 6: Seasonal Phenology Baseline ──
