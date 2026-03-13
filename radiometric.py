@@ -273,40 +273,55 @@ def match_interframe_illumination(red_frame, nir_frame, mask=None):
     of stable regions (concrete, asphalt, monuments) and scaling
     the dimmer frame to match the brighter one.
 
+    PIF Detection Strategy:
+      Instead of using the brightest pixels (which could be vegetation),
+      we identify pixels where Red ≈ NIR (low NDVI magnitude). These are
+      spectrally flat surfaces like concrete, stone, and asphalt — true
+      pseudo-invariant features whose reflectance doesn't change seasonally.
+
     Args:
         red_frame:  np.ndarray (H, W) float32
         nir_frame:  np.ndarray (H, W) float32
         mask:       optional np.ndarray (H, W) bool, True = PIF pixels
-                    If None, uses the brightest 10% of pixels (heuristic for
-                    concrete/rock which are bright in both Red and NIR)
+                    If None, auto-detects invariant surfaces via NDVI
 
     Returns:
         (red_corrected, nir_corrected, metadata) where metadata contains:
             delta_pct:       float, brightness difference between frames
             scale_applied:   float, scale factor used (1.0 = no change)
             flagged:         bool, True if delta > threshold
+            pif_count:       int, number of PIF pixels used
     """
-    if mask is None:
-        # Heuristic: use the brightest 10% of pixels as pseudo-invariant
-        combined = (red_frame + nir_frame) / 2.0
-        threshold = np.percentile(combined, 90)
-        mask = combined >= threshold
+    no_change = {"delta_pct": 0.0, "scale_applied": 1.0, "flagged": False, "pif_count": 0}
 
-    if mask.sum() < 100:
+    if mask is None:
+        # Auto-detect PIFs: find spectrally flat surfaces (|NDVI| < 0.15)
+        # These are concrete, stone, asphalt — NOT vegetation
+        denom = red_frame + nir_frame
+        # Adaptive noise floor: 5th percentile of total brightness
+        noise_floor = max(np.percentile(denom, 5), 1e-6)
+        safe = denom > noise_floor
+        if safe.sum() < 100:
+            return red_frame, nir_frame, no_change
+        quick_ndvi = np.where(safe, (nir_frame - red_frame) / (denom + 1e-10), 0.5)
+        # PIFs have NDVI near zero AND sufficient signal strength
+        denom_thresh = np.percentile(denom[safe], 25)
+        mask = (np.abs(quick_ndvi) < 0.15) & safe & (denom > denom_thresh)
+
+    pif_count = int(mask.sum())
+    if pif_count < 100:
         # Not enough PIF pixels — skip correction
-        return red_frame, nir_frame, {
-            "delta_pct": 0.0, "scale_applied": 1.0, "flagged": False
-        }
+        no_change["pif_count"] = pif_count
+        return red_frame, nir_frame, no_change
 
     mean_red = float(red_frame[mask].mean())
     mean_nir = float(nir_frame[mask].mean())
 
-    if mean_red == 0 or mean_nir == 0:
-        return red_frame, nir_frame, {
-            "delta_pct": 0.0, "scale_applied": 1.0, "flagged": False
-        }
+    if mean_red < 1e-6 or mean_nir < 1e-6:
+        no_change["pif_count"] = pif_count
+        return red_frame, nir_frame, no_change
 
-    # Compute relative difference
+    # Compute relative difference on PIF surfaces
     delta = abs(mean_red - mean_nir) / max(mean_red, mean_nir)
 
     if delta > INTERFRAME_THRESHOLD:
@@ -324,6 +339,7 @@ def match_interframe_illumination(red_frame, nir_frame, mask=None):
         "delta_pct": round(delta * 100, 1),
         "scale_applied": round(scale, 4),
         "flagged": delta > INTERFRAME_THRESHOLD,
+        "pif_count": pif_count,
     }
 
 
@@ -504,9 +520,14 @@ def apply_corrections(red_frame, nir_frame,
     if 1 not in skip and red_exposure is not None and nir_exposure is not None:
         red = normalize_exposure(red, red_exposure, red_gain or 1.0)
         nir = normalize_exposure(nir, nir_exposure, nir_gain or 1.0)
+        # Renormalize both to 0-1 range using shared max to preserve the ratio
+        shared_max = max(float(red.max()), float(nir.max()), 1.0)
+        red = red / shared_max
+        nir = nir / shared_max
         corrections["L1_exposure"] = {
             "red": {"exposure": red_exposure, "gain": red_gain},
             "nir": {"exposure": nir_exposure, "gain": nir_gain},
+            "renorm_factor": round(shared_max, 2),
         }
     else:
         corrections["L1_exposure"] = "skipped"

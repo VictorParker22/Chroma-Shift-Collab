@@ -283,6 +283,12 @@ class VilaSceneAnalyzer:
         if len(nir.shape) == 3:
             nir = np.mean(nir, axis=2)
 
+        # Normalize to 0-1 if input looks like uint8 (values > 1)
+        if red.max() > 1.0 or nir.max() > 1.0:
+            scale = max(float(red.max()), float(nir.max()), 1.0)
+            red = red / scale
+            nir = nir / scale
+
         # Compute basic scene statistics
         red_mean = float(red.mean())
         nir_mean = float(nir.mean())
@@ -290,18 +296,21 @@ class VilaSceneAnalyzer:
         nir_std = float(nir.std())
 
         # Inter-frame brightness check
-        delta = abs(red_mean - nir_mean) / max(red_mean, nir_mean, 1)
+        delta = abs(red_mean - nir_mean) / max(red_mean, nir_mean, 0.001)
         interframe_change = delta > 0.10
 
-        # Shadow estimation (low-value pixels)
-        shadow_pct = float((red < np.percentile(red, 15)).sum()) / red.size * 100
+        # Shadow estimation (pixels below 20% of dynamic range)
+        shadow_thresh = 0.20 * max(red_mean, 0.01)
+        shadow_pct = float((red < shadow_thresh).sum()) / red.size * 100
 
         # Vegetation estimation (high NIR, low Red = vegetation)
-        ndvi_quick = np.where((nir + red) > 0, (nir - red) / (nir + red), 0)
-        veg_pct = float((ndvi_quick > 0.2).sum()) / ndvi_quick.size * 100
+        denom = nir + red
+        safe = denom > 0.05  # proper guard for normalized data
+        ndvi_quick = np.where(safe, (nir - red) / denom, 0)
+        veg_pct = float((ndvi_quick > 0.15).sum()) / ndvi_quick.size * 100
 
         # Haze detection (low contrast = haze)
-        contrast = red_std / max(red_mean, 1)
+        contrast = red_std / max(red_mean, 0.01)
         haze_detected = contrast < 0.15
 
         # Cloud cover adjustment from weather
