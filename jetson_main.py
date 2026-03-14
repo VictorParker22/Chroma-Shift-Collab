@@ -389,6 +389,10 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
     Full pipeline for one zone:
       capture → radiometric correction → VILA scene analysis → corrected NDVI
       → AI classify → compare (seasonal + weather-adjusted) → alert → log
+
+    Returns:
+        (new_alerts, scan_result) where scan_result is a dict with
+        ndvi, baseline, vila_result, and solar for adaptive scheduling.
     """
     zone = FIELD_ZONES[zone_id]
     zone_name = zone["name"]
@@ -547,7 +551,14 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
     cv2.imwrite(os.path.join(CAPTURES_DIR, f"{zone_id}_{ts}_red.png"), red_frame)
     cv2.imwrite(os.path.join(CAPTURES_DIR, f"{zone_id}_{ts}_nir.png"), nir_frame)
 
-    return new_alerts
+    # Return scan result for adaptive scheduling
+    scan_result = {
+        "ndvi": mean_ndvi,
+        "baseline": baseline,
+        "vila_result": vila_result,
+        "solar": solar,
+    }
+    return new_alerts, scan_result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -603,6 +614,17 @@ def main():
     # --- Init Radiometric Correction (per-zone Kalman filters) ---
     kalman_filters = {zone_id: KalmanNDVI() for zone_id in zones}
     print(f"  Kalman filters initialized for {len(zones)} zones 📊")
+
+    # --- Init Adaptive Sensing Scheduler ---
+    adaptive_scheduler = None
+    try:
+        from adaptive_sensing import AdaptiveSensingScheduler
+        adaptive_scheduler = AdaptiveSensingScheduler(base_interval=args.interval)
+        print(f"  Adaptive scheduler initialized (interval: {args.interval}s base, "
+              f"range: 120-1800s) 🎯")
+    except Exception as e:
+        print(f"  ⚠️  Adaptive scheduler not available: {e}")
+        print(f"      (using fixed {args.interval}s interval)")
 
     # --- Init VILA Scene Analyzer (VLM or heuristic fallback) ---
     scene_analyzer = None
@@ -775,31 +797,68 @@ def main():
             except Exception as e:
                 print(f"  ⚠️  Weather fetch failed: {e}")
 
-            for zone_id in zones:
+            # Adaptive zone ordering — scan highest-priority zones first
+            scan_zones = zones
+            if adaptive_scheduler:
+                scan_zones = adaptive_scheduler.rank_zones(zones)
+
+            next_interval = args.interval  # default fallback
+            for zone_id in scan_zones:
                 if not _running:
                     break
                 try:
-                    new_alerts = scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
-                                           weather, ai_classify=ai_classify,
-                                           scene_analyzer=scene_analyzer,
-                                           kalman_filters=kalman_filters)
+                    new_alerts, scan_result = scan_zone(
+                        cap, efw, sb, zone_id, scan_count, alert_count,
+                        weather, ai_classify=ai_classify,
+                        scene_analyzer=scene_analyzer,
+                        kalman_filters=kalman_filters,
+                    )
                     scan_count += 1
                     alert_count += new_alerts
+
+                    # --- Adaptive Scheduling Decision ---
+                    if adaptive_scheduler and scan_result:
+                        decision = adaptive_scheduler.compute_next_interval(
+                            zone_id,
+                            ndvi=scan_result["ndvi"],
+                            seasonal_baseline=scan_result["baseline"],
+                            vila_result=scan_result.get("vila_result"),
+                            weather=weather,
+                            solar=scan_result.get("solar"),
+                        )
+                        # Use the shortest interval across all zones
+                        next_interval = min(next_interval, decision["interval_sec"])
+                        print(f"           🎯 Adaptive: {decision['interval_sec']}s, "
+                              f"priority={decision['priority']}, "
+                              f"mode={decision['power_mode']}")
+                        if decision["reason"] != "nominal operations":
+                            print(f"              → {decision['reason']}")
+
                 except Exception as e:
                     print(f"  ⚠️  Error scanning {zone_id}: {e}")
                     traceback.print_exc()
 
-            print(f"  Scans: {scan_count}  Alerts: {alert_count}")
+            # Cycle summary
+            if adaptive_scheduler:
+                bw = adaptive_scheduler.get_bandwidth_estimate()
+                print(f"  Scans: {scan_count}  Alerts: {alert_count}  "
+                      f"Next: {next_interval}s  BW: {bw['total_kb']}KB")
+            else:
+                print(f"  Scans: {scan_count}  Alerts: {alert_count}")
 
             if args.once:
                 print("\n  --once flag set. Exiting.")
                 break
 
-            # Sleep until next cycle
+            # Sleep until next cycle (adaptive or fixed)
             elapsed = time.time() - cycle_start
-            sleep_time = max(0, args.interval - elapsed)
+            sleep_time = max(0, next_interval - elapsed)
             if sleep_time > 0 and _running:
-                print(f"  Next cycle in {int(sleep_time)}s … (Ctrl+C to stop)\n")
+                if adaptive_scheduler and next_interval != args.interval:
+                    print(f"  ⏱️  Adaptive interval: {int(next_interval)}s "
+                          f"(base: {args.interval}s) … (Ctrl+C to stop)\n")
+                else:
+                    print(f"  Next cycle in {int(sleep_time)}s … (Ctrl+C to stop)\n")
                 # Sleep in small increments so SIGINT is responsive
                 wake_at = time.time() + sleep_time
                 while time.time() < wake_at and _running:
