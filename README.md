@@ -1,8 +1,8 @@
 # 🌿 Chroma-Shift
 
-**AI-Powered Multispectral Vegetation Monitoring on NVIDIA Jetson Orin Nano**
+**Self-Calibrating Multispectral Vegetation Monitoring with Edge-to-Cloud AI**
 
-Chroma-Shift is an edge-deployed crop stress detection system that combines multispectral imaging (Red + NIR), NDVI analysis, DINOv2 AI classification, and real-time weather correlation — all running on a Jetson Orin Nano with 8GB RAM.
+Chroma-Shift is an autonomous crop stress detection system that combines multispectral imaging (Red + NIR), a 7-layer self-calibrating radiometric correction pipeline, DINOv2 on-device classification, a cloud-hosted 90B Vision-Language Model, and real-time weather correlation — all orchestrated from an NVIDIA Jetson Orin Nano.
 
 Built for the **NASA Space Apps Challenge**.
 
@@ -11,83 +11,142 @@ Built for the **NASA Space Apps Challenge**.
 ## 🏗️ System Architecture
 
 ```
-┌─────────────────┐     ┌──────────────┐     ┌────────────────┐
-│ Arducam Multi-  │────▶│  Filter Wheel │────▶│  Red + NIR     │
-│ spectral Camera │     │  (EFW Mini)   │     │  Image Pair    │
-└─────────────────┘     └──────────────┘     └───────┬────────┘
-                                                      │
-                    ┌─────────────────────────────────┘
-                    ▼
-        ┌───────────────────────┐
-        │   NDVI Computation    │──── (NIR − Red) / (NIR + Red)
-        └──────────┬────────────┘
-                   │
-        ┌──────────▼────────────┐
-        │  DINOv2 ViT-S/14 AI  │──── healthy_vegetation / stressed_soil
-        │  (85.8% accuracy)     │
-        └──────────┬────────────┘
-                   │
-        ┌──────────▼────────────┐     ┌──────────────┐
-        │  Weather Correlation  │◀────│  NWS API     │
-        │  (temp, precip, RH)   │     │  (KNYC)      │
-        └──────────┬────────────┘     └──────────────┘
-                   │
-        ┌──────────▼────────────┐
-        │    Supabase Cloud     │──── Alerts, NDVI logs, heartbeats
-        └───────────────────────┘
+  ┌─────────────────┐     ┌──────────────┐     ┌────────────────┐
+  │ Arducam Multi-  │────▶│  Filter Wheel │────▶│  Red + NIR     │
+  │ spectral Camera │     │  (EFW Mini)   │     │  Image Pair    │
+  └─────────────────┘     └──────────────┘     └───────┬────────┘
+                                                        │
+                        ┌───────────────────────────────┘
+                        ▼
+            ┌───────────────────────┐
+            │  7-Layer Radiometric  │──── Self-calibrating, panel-free
+            │  Correction Pipeline  │     109/109 tests passing
+            │  (radiometric.py)     │
+            └──────────┬────────────┘
+                       │
+          ┌────────────┼────────────────────────┐
+          ▼            ▼                         ▼
+┌──────────────┐ ┌───────────────┐      ┌──────────────────┐
+│ NDVI Compute │ │ DINOv2 ViT-S  │      │  NVIDIA NIM      │
+│ (per-pixel)  │ │ TensorRT FP16 │      │  Cloud VLM       │
+│              │ │ 8.7ms/frame   │      │  Llama 90B (5.6s)│
+└──────┬───────┘ └──────┬────────┘      └───────┬──────────┘
+       │                │                        │
+       └────────────────┼────────────────────────┘
+                        ▼
+            ┌───────────────────────┐     ┌──────────────┐
+            │  Weather Correlation  │◀────│  NWS API     │
+            │  + Kalman Filter      │     │  (KNYC)      │
+            └──────────┬────────────┘     └──────────────┘
+                       │
+            ┌──────────▼────────────┐
+            │    Supabase Cloud     │──── NDVI, alerts, weather, VLM logs
+            │    + Live Dashboard   │
+            └───────────────────────┘
 ```
+
+### Edge-to-Cloud AI Split
+
+| Component | Where | Latency | Purpose |
+|-----------|-------|---------|---------|
+| 7-Layer Radiometric Pipeline | Jetson CPU | ~15 ms | Physics-based self-calibration |
+| DINOv2 ViT-S/14 Classifier | Jetson GPU | 8.7 ms | Healthy vs stressed classification |
+| Llama 3.2 90B Vision (VLM) | NVIDIA NIM Cloud | ~5.6 s | Scene analysis + correction orchestration |
+| Heuristic Fallback | Jetson CPU | <1 ms | Auto-activates if cloud unreachable |
+| Weather + Kalman | Jetson CPU | ~200 ms | Stress correlation + temporal smoothing |
+
+---
 
 ## 🔬 Hardware
 
 | Component | Model | Purpose |
 |-----------|-------|---------|
-| Compute | NVIDIA Jetson Orin Nano 8GB | Edge AI inference |
-| Camera | Arducam Multispectral Camera | Multispectral imaging |
-| Filter Wheel | ZWO EFW Mini (5-slot) | Band selection |
-| Filters | Red (640-670nm), NIR (850-880nm) | NDVI computation |
+| Compute | NVIDIA Jetson Orin Nano 8GB | Edge AI inference (10W) |
+| Camera | Arducam Multispectral Camera | Red + NIR imaging |
+| Filter Wheel | ZWO EFW Mini (5-slot) | Band selection (665nm, 850nm) |
+| Filters | Red (665nm), NIR (850nm) | NDVI band pair |
 | Storage | 1TB NVMe | Dataset & model storage |
+
+---
+
+## 📊 7-Layer Self-Calibrating Pipeline
+
+The core innovation — converts raw camera values to scientifically comparable NDVI readings without calibration panels:
+
+| Layer | Method | What it Corrects | Citation |
+|-------|--------|-----------------|----------|
+| 1 | Auto-Exposure Normalization | Camera gain/exposure drift | — |
+| 2 | Dark Object Subtraction | Atmospheric haze + sensor offset | Chavez 1988 |
+| 3 | Solar Zenith Correction | Sun angle illumination changes | Spencer 1971 |
+| 4 | Cloud Transmittance Model | Cloud-induced irradiance drop | Kasten & Czeplak 1980 |
+| 5 | **Inter-Frame PIF Matching** | Illumination change between captures | **Novel** |
+| 6 | Seasonal Phenology Baseline | Normal dormancy cycles | NASA HLS 2019–2023 |
+| 7 | Kalman Temporal Filter | Noise + transient artifacts | — |
+
+**Validated with 109 automated tests** covering edge cases, seasonal coverage, cross-layer interactions, and known-input consistency.
+
+---
 
 ## 📁 Project Structure
 
 ```
 Chroma-Shift/
-├── jetson_main.py           # Main continuous scan loop (NDVI + AI + weather → Supabase)
-├── train_dinov2.py          # DINOv2 training (original, full model)
-├── train_dinov2_v2.py       # DINOv2 training v2 (feature caching — memory efficient)
-├── build_dataset.py         # Dataset pipeline (PlantVillage + field augmentation)
-├── export_and_infer.py      # ONNX export + batch inference validation
-├── rapid_capture.py         # Fast field data collection tool
-├── capture_multispectral_pair.py  # Single Red+NIR capture with NDVI
-├── classify_and_sort.py     # NDVI-based dataset labeling
-├── weather.py               # NWS API integration + NDVI-weather correlation
-├── push_to_supabase.py      # Supabase database utilities
-├── process_ndvi.py          # NASA HLS satellite NDVI processing
-├── dino_v2_train_spec.yaml  # TAO Toolkit training specification
-├── ndvi_central_park.csv    # Ground-truth NDVI baseline (296 observations, 2019-2023)
-├── nyc-central-park-data/   # NASA HLS raw satellite data
-└── lib/                     # ZWO SDK libraries (ARM64)
+├── jetson_main.py              # Main scan loop (capture → correct → classify → upload)
+├── radiometric.py              # 7-layer self-calibrating correction pipeline
+├── vila_analyzer.py            # Cloud VLM scene analyzer (4-mode priority chain)
+├── weather.py                  # NWS API + NDVI-weather stress correlation
+├── push_to_supabase.py         # Supabase database utilities
+├── dashboard.html              # Real-time monitoring dashboard
+│
+├── train_dinov2.py             # DINOv2 training (full model)
+├── train_dinov2_v2.py          # DINOv2 training v2 (feature caching, 8GB safe)
+├── build_dataset.py            # Dataset pipeline (PlantVillage + field augmentation)
+├── export_and_infer.py         # ONNX export + TensorRT conversion
+├── convert_tensorrt.py         # TensorRT FP16 engine builder
+│
+├── run_vila.sh                 # VILA container launcher (REST API / interactive)
+├── capture_multispectral_pair.py  # Single Red+NIR capture + NDVI
+├── rapid_capture.py            # Fast field data collection tool
+├── classify_and_sort.py        # NDVI-based dataset labeling
+├── process_ndvi.py             # NASA HLS satellite NDVI processing
+│
+├── TECHNICAL_REPORT.md         # Full technical report
+├── CHALLENGE_PAPER.md          # 5-page competition paper
+├── VIDEO_SCRIPT.md             # 3-minute video script
+│
+├── ndvi_central_park.csv       # Ground-truth NDVI baseline (296 obs, 2019-2023)
+├── nyc-central-park-data/      # NASA HLS raw satellite data
+├── models/                     # Model weights (DINOv2, VILA cache)
+├── results/                    # Training results + TensorRT engines
+└── lib/                        # ZWO SDK libraries (ARM64)
 ```
 
-## 🧠 AI Model
+---
 
-**DINOv2 ViT-Small/14** with a frozen backbone and trainable linear head (770 parameters).
+## 🧠 AI Models
+
+### DINOv2 Image Classifier (On-Device)
 
 | Metric | Value |
 |--------|-------|
 | Backbone | DINOv2 ViT-S/14 (22M params, frozen) |
 | Head | Linear classifier (770 trainable params) |
-| Training | Feature caching → linear head training |
-| Val Accuracy | 85.79% |
+| Val Accuracy | 84.17% |
+| TensorRT Latency | 8.7 ms (FP16) |
 | Classes | `healthy_vegetation`, `stressed_soil` |
-| Input Size | 168×168 RGB |
-| ONNX Size | 84.3 MB |
+| Training Data | 171 field captures (15× aug) + PlantVillage |
 
-### Training Data
+### Cloud VLM Scene Analyzer (NVIDIA NIM)
 
-- **66 field captures** (Red+NIR pairs from Central Park, March 2026)
-- **15× augmentation** (flips, rotations, brightness/contrast/saturation jitter)
-- **200 PlantVillage images/class** (leaf disease dataset for diversity)
-- **Seasonal NDVI threshold**: 0.25 (March NYC baseline)
+| Metric | Value |
+|--------|-------|
+| Model | Llama 3.2 90B Vision |
+| Platform | NVIDIA NIM (cloud) |
+| Latency | ~5.6 s |
+| Output | Structured JSON (scene analysis + corrections) |
+| Fallback | Rule-based heuristic (<1 ms) |
+
+---
 
 ## 🚀 Quick Start
 
@@ -103,85 +162,90 @@ Chroma-Shift/
 ```bash
 git clone https://github.com/VictorParker22/Chroma-Shift.git
 cd Chroma-Shift
-cp .env.example .env  # Add your Supabase credentials
+cp .env.example .env
 ```
 
-### 2. Install jetson-containers
+### 2. Configure `.env`
 
 ```bash
-git clone --depth 1 https://github.com/dusty-nv/jetson-containers.git
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-service-role-key
+
+# Cloud VLM (NVIDIA NIM)
+NVIDIA_NIM_API_KEY=nvapi-your-key-here
+
+# Optional: Local VILA container
+# VILA_API_URL=http://localhost:8050
 ```
 
-### 3. Capture Data
+### 3. Train DINOv2
 
 ```bash
-python3 rapid_capture.py --free 50  # Free-form capture mode
-```
-
-### 4. Train the Model
-
-```bash
-# Build augmented dataset
 python3 build_dataset.py
-
-# Train inside Docker (feature extraction + head training)
-jetson-containers/run.sh \
-  --volume $(pwd):/workspace/chroma-shift \
-  dustynv/pytorch:2.7-r36.4.0-cu128-24.04 \
-  python3 /workspace/chroma-shift/train_dinov2_v2.py \
-    --data-dir /workspace/chroma-shift/data \
-    --results-dir /workspace/chroma-shift/results/dino_v2_classify \
-    --features-dir /workspace/chroma-shift/results/cached_features
+python3 train_dinov2_v2.py \
+    --data-dir ./data \
+    --results-dir ./results/dino_v2_classify
+python3 convert_tensorrt.py  # Build TensorRT FP16 engine
 ```
 
-### 5. Run Live Monitoring
+### 4. Run Live Monitoring
 
 ```bash
-jetson-containers/run.sh \
-  --volume $(pwd):/workspace/chroma-shift \
-  dustynv/pytorch:2.7-r36.4.0-cu128-24.04 \
-  python3 /workspace/chroma-shift/jetson_main.py --zone T1 --interval 600
+python3 jetson_main.py --zone T1 --interval 600
 ```
 
 Output:
 ```
 ═══ Cycle 1 ═════════════════════════════════════════════
-  🌤️  Weather: 18°C, 45% RH, Clear
-  [16:30:00] Scanning T1 (USS Maine Monument) … 🟤AI:stressed_soil(87%)
-  NDVI=0.0842 (baseline 0.6493) → stress ⚠️
-  🤖 AI: stressed_soil (87.2% confidence)
-  🌤️  Clear (modifier: +0.000)
+  🌐 NVIDIA NIM Cloud VLM: meta/llama-3.2-90b-vision-instruct
+  🌤️  Weather: 12°C, 45% RH, Partly Cloudy
+  [16:30:00] Scanning T1 (USS Maine Monument)
+  📡 VLM: 80% vegetation, uniform illumination, conf 0.8
+  🔬 7-layer correction applied (109 validations)
+  NDVI=0.3344 (seasonal baseline 0.25) → healthy ✅
+  🤖 DINOv2: healthy_vegetation (84.2% confidence, 8.7ms)
 ```
+
+---
 
 ## 📊 NDVI Baseline
 
-Ground-truth NDVI baseline computed from **296 clear-sky observations** of NYC Central Park using NASA Harmonized Landsat Sentinel-2 (HLS) data (2019-2023):
+Ground-truth from **296 clear-sky observations** of Central Park via NASA HLS (2019-2023):
 
 | Metric | Value |
 |--------|-------|
-| Satellite Baseline (summer) | 0.6493 |
-| Seasonal Field Baseline (March) | 0.25 |
+| Annual Mean | 0.6493 |
+| Annual Median | 0.7438 |
+| March Seasonal | ~0.25 |
+| August Peak | ~0.74 |
 | Source | NASA HLS L30/S30 |
 | Location | 40.7829°N, 73.9654°W |
 
+---
+
 ## 🌤️ Weather Integration
 
-Real-time weather data from the **National Weather Service API** (Central Park / KNYC station):
+Real-time weather from the **NWS API** (Central Park / KNYC):
 
 - Temperature, humidity, wind, precipitation
 - Weather-adjusted NDVI stress thresholds
 - Drought, heat, and freeze risk assessment
 - Full weather context pushed to Supabase with each scan
 
+---
+
 ## 🗄️ Supabase Schema
 
 | Table | Purpose |
 |-------|---------|
-| `ndvi_readings` | NDVI values + AI classification per scan |
-| `alerts` | Stress alerts with severity, recommendations |
+| `ndvi_readings` | NDVI + AI + VLM classification per scan |
+| `alerts` | Stress alerts with severity & recommendations |
 | `field_zones` | Zone baselines and current status |
 | `system_status` | Jetson heartbeat (temp, uptime, storage) |
 | `weather_data` | Correlated weather + NDVI observations |
+
+---
 
 ## 📜 License
 
@@ -191,6 +255,6 @@ MIT
 
 - **NASA** — Harmonized Landsat Sentinel-2 data
 - **Meta AI** — DINOv2 foundation model
+- **NVIDIA** — Jetson platform, NIM cloud inference, TensorRT
 - **PlantVillage** — Plant disease dataset
-- **NVIDIA** — Jetson platform & TAO Toolkit
 - **National Weather Service** — Real-time weather API
