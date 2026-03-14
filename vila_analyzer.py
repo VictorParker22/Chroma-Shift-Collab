@@ -306,7 +306,7 @@ class VilaSceneAnalyzer:
         # Vegetation estimation (high NIR, low Red = vegetation)
         denom = nir + red
         safe = denom > 0.05  # proper guard for normalized data
-        ndvi_quick = np.where(safe, (nir - red) / denom, 0)
+        ndvi_quick = np.where(safe, (nir - red) / (denom + 1e-10), 0)
         veg_pct = float((ndvi_quick > 0.15).sum()) / ndvi_quick.size * 100
 
         # Haze detection (low contrast = haze)
