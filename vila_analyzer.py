@@ -2,9 +2,9 @@
 """
 vila_analyzer.py — VILA Vision-Language Scene Analyzer
 ========================================================
-Runs NVIDIA VILA 1.5-3B (4-bit AWQ quantized) on the Jetson Orin Nano
-to analyze multispectral captures and generate intelligent radiometric
-correction parameters.
+Runs scene analysis via NVIDIA NIM cloud VLM (preferred) or a local
+heuristic fallback to generate intelligent radiometric correction
+parameters for multispectral NDVI captures.
 
 Instead of blindly applying all 7 correction layers, the VLM sees the
 actual Red+NIR frames and weather context, then decides:
@@ -14,14 +14,15 @@ actual Red+NIR frames and weather context, then decides:
   - Confidence score for the overall reading
 
 Architecture:
-  Camera frames + Weather JSON → VILA prompt → Structured JSON output
-                                                    ↓
+  Camera frames + Weather JSON → Cloud VLM (NVIDIA NIM) → JSON output
+                                                     ↓
                             radiometric.apply_corrections(vila_overrides=...)
 
-Requirements:
-  - NVIDIA Jetson Orin Nano (8 GB)
-  - dustynv/vila:1.5-3b-r36 container (or compatible NanoLLM container)
-  - ~2 GB VRAM for 4-bit quantized model
+Modes (auto-detected, in priority order):
+  1. NVIDIA NIM Cloud API  → Set NVIDIA_NIM_API_KEY in .env
+  2. Local REST API        → Set VILA_API_URL (container on LAN)
+  3. Direct NanoLLM        → Inside dustynv/nano_llm container (16GB+ only)
+  4. Heuristic fallback    → Rule-based, <1ms, no GPU needed
 
 Usage:
     from vila_analyzer import VilaSceneAnalyzer
@@ -152,12 +153,26 @@ class VilaSceneAnalyzer:
         self.model_name = model_name
         self._fallback = False
         self._api_url = api_url or os.environ.get("VILA_API_URL")
+        self._nim_api_key = os.environ.get("NVIDIA_NIM_API_KEY")
+        self._nim_model = os.environ.get(
+            "NVIDIA_NIM_MODEL",
+            "meta/llama-3.2-90b-vision-instruct",  # best free VLM on NIM
+        )
+        self._nim_base_url = os.environ.get(
+            "NVIDIA_NIM_URL",
+            "https://integrate.api.nvidia.com/v1",
+        )
 
-        # Mode 1: REST API (preferred for host→container deployment)
+        # Mode 1: NVIDIA NIM Cloud API (preferred — offloads VLM from Jetson)
+        if self._nim_api_key:
+            print(f"  🌐 NVIDIA NIM Cloud VLM: {self._nim_model}")
+            print(f"     Endpoint: {self._nim_base_url}")
+            return
+
+        # Mode 2: Local REST API (VILA container on same device / LAN)
         if self._api_url:
             try:
                 import urllib.request
-                # Quick health check
                 req = urllib.request.Request(
                     f"{self._api_url.rstrip('/')}/api/health",
                     method="GET",
@@ -168,9 +183,8 @@ class VilaSceneAnalyzer:
             except Exception as e:
                 print(f"  ⚠️  VILA API at {self._api_url} not reachable: {e}")
                 self._api_url = None
-                # Fall through to try direct import
 
-        # Mode 2: Direct NanoLLM import (inside container)
+        # Mode 3: Direct NanoLLM import (inside container)
         try:
             from nano_llm import NanoLLM
             print(f"  Loading VILA VLM: {model_name} …", end=" ", flush=True)
@@ -212,10 +226,125 @@ class VilaSceneAnalyzer:
         if self._fallback:
             return self._heuristic_analysis(red_frame, nir_frame, weather, solar)
 
+        if self._nim_api_key:
+            return self._cloud_analysis(red_frame, nir_frame, weather, solar, timestamp)
+
         if self._api_url:
             return self._api_analysis(red_frame, nir_frame, weather, solar, timestamp)
 
         return self._vlm_analysis(red_frame, nir_frame, weather, solar, timestamp)
+
+    def _cloud_analysis(self, red_frame, nir_frame, weather, solar, timestamp):
+        """Call NVIDIA NIM cloud API for scene analysis (OpenAI-compatible)."""
+        import urllib.request
+        import cv2
+        import base64
+
+        t0 = time.time()
+
+        # Create side-by-side composite image
+        red_u8 = red_frame.astype(np.uint8) if red_frame.dtype != np.uint8 else red_frame
+        nir_u8 = nir_frame.astype(np.uint8) if nir_frame.dtype != np.uint8 else nir_frame
+        if len(red_u8.shape) == 2:
+            red_u8 = cv2.cvtColor(red_u8, cv2.COLOR_GRAY2RGB)
+        if len(nir_u8.shape) == 2:
+            nir_u8 = cv2.cvtColor(nir_u8, cv2.COLOR_GRAY2RGB)
+        combined = np.hstack([red_u8, nir_u8])
+        _, img_bytes = cv2.imencode(".jpg", combined, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        img_b64 = base64.b64encode(img_bytes.tobytes()).decode()
+
+        # Build user message with weather/solar context
+        context_parts = []
+        if weather:
+            cc = weather.get('cloud_cover_pct', 'N/A')
+            desc = weather.get('description', 'N/A')
+            temp = weather.get('temperature_f', weather.get('temperature_c', 'N/A'))
+            context_parts.append(f"Weather: {desc}, cloud cover {cc}%, temp {temp}")
+        if solar:
+            context_parts.append(f"Solar elevation: {solar.get('elevation_deg', 'N/A')}°")
+        context_str = ". ".join(context_parts) if context_parts else "No weather data available"
+
+        user_text = (
+            f"This is a side-by-side multispectral image pair from an agricultural monitoring camera. "
+            f"Left half is the Red band (665nm), right half is the NIR band (850nm). "
+            f"Current conditions: {context_str}. "
+            f"Analyze the scene and output ONLY valid JSON with these fields: "
+            f'{{"vegetation_pct": 0-100, "soil_pct": 0-100, "artificial_pct": 0-100, '
+            f'"shadow_pct": 0-100, "haze_detected": true/false, '
+            f'"illumination_quality": "uniform"/"patchy"/"poor", '
+            f'"interframe_change": true/false, '
+            f'"skip_layers": [], "cloud_cover_adj": null or 0-100, '
+            f'"confidence": 0.0-1.0, '
+            f'"explanation": "one sentence describing the scene"}}'
+        )
+
+        # OpenAI-compatible chat completion request
+        payload = json.dumps({
+            "model": self._nim_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_b64}",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": user_text,
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 512,
+            "temperature": 0.1,
+            "stream": False,
+        }).encode()
+
+        try:
+            req = urllib.request.Request(
+                f"{self._nim_base_url.rstrip('/')}/chat/completions",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self._nim_api_key}",
+                },
+                method="POST",
+            )
+            resp = urllib.request.urlopen(req, timeout=30)
+            result = json.loads(resp.read().decode())
+            response_text = result["choices"][0]["message"]["content"]
+
+            latency = (time.time() - t0) * 1000
+            parsed = self._parse_response(response_text)
+
+            return {
+                "corrections": {
+                    "skip_layers": parsed.get("skip_layers", []),
+                    "cloud_cover_adj": parsed.get("cloud_cover_adj"),
+                    "confidence": parsed.get("confidence", 0.5),
+                },
+                "scene": {
+                    "vegetation_pct": parsed.get("vegetation_pct", 50),
+                    "soil_pct": parsed.get("soil_pct", 25),
+                    "artificial_pct": parsed.get("artificial_pct", 25),
+                    "shadow_pct": parsed.get("shadow_pct", 0),
+                    "illumination": parsed.get("illumination_quality", "uniform"),
+                    "haze": parsed.get("haze_detected", False),
+                    "interframe_change": parsed.get("interframe_change", False),
+                },
+                "explanation": parsed.get("explanation",
+                                          parsed.get("scene_description", "Cloud analysis complete")),
+                "confidence": parsed.get("confidence", 0.5),
+                "raw_output": response_text,
+                "latency_ms": round(latency, 1),
+                "source": "nvidia_nim_cloud",
+            }
+        except Exception as e:
+            print(f"  ⚠️  NIM cloud call failed ({e}), using heuristic fallback")
+            return self._heuristic_analysis(red_frame, nir_frame, weather, solar)
 
     def _api_analysis(self, red_frame, nir_frame, weather, solar, timestamp):
         """Call VILA via the REST API running in the Docker container."""
