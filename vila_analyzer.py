@@ -134,15 +134,37 @@ class VilaSceneAnalyzer:
     """
     Wraps the VILA 1.5-3B VLM for scene analysis on Jetson.
 
-    Uses NanoLLM (dustynv) for efficient 4-bit inference.
-    Falls back to a rule-based heuristic if the model isn't available.
+    Three modes of operation (auto-detected):
+      1. REST API: VILA runs in Docker container, jetson_main.py calls via HTTP
+         → Set VILA_API_URL env var or pass api_url to constructor
+      2. Direct: NanoLLM imported in-process (when running inside the container)
+      3. Heuristic fallback: rule-based analysis when VILA isn't available
     """
 
-    def __init__(self, model_name=VILA_MODEL):
+    def __init__(self, model_name=VILA_MODEL, api_url=None):
         self.model = None
         self.model_name = model_name
         self._fallback = False
+        self._api_url = api_url or os.environ.get("VILA_API_URL")
 
+        # Mode 1: REST API (preferred for host→container deployment)
+        if self._api_url:
+            try:
+                import urllib.request
+                # Quick health check
+                req = urllib.request.Request(
+                    f"{self._api_url.rstrip('/')}/api/health",
+                    method="GET",
+                )
+                urllib.request.urlopen(req, timeout=3)
+                print(f"  VILA REST API connected: {self._api_url} ✅")
+                return
+            except Exception as e:
+                print(f"  ⚠️  VILA API at {self._api_url} not reachable: {e}")
+                self._api_url = None
+                # Fall through to try direct import
+
+        # Mode 2: Direct NanoLLM import (inside container)
         try:
             from nano_llm import NanoLLM
             print(f"  Loading VILA VLM: {model_name} …", end=" ", flush=True)
@@ -184,7 +206,82 @@ class VilaSceneAnalyzer:
         if self._fallback:
             return self._heuristic_analysis(red_frame, nir_frame, weather, solar)
 
+        if self._api_url:
+            return self._api_analysis(red_frame, nir_frame, weather, solar, timestamp)
+
         return self._vlm_analysis(red_frame, nir_frame, weather, solar, timestamp)
+
+    def _api_analysis(self, red_frame, nir_frame, weather, solar, timestamp):
+        """Call VILA via the REST API running in the Docker container."""
+        import urllib.request
+        import cv2
+        import base64
+
+        t0 = time.time()
+
+        # Create side-by-side image
+        red_vis = red_frame if len(red_frame.shape) == 3 else cv2.cvtColor(
+            red_frame.astype(np.uint8) if red_frame.dtype != np.uint8 else red_frame,
+            cv2.COLOR_GRAY2RGB,
+        )
+        nir_vis = nir_frame if len(nir_frame.shape) == 3 else cv2.cvtColor(
+            nir_frame.astype(np.uint8) if nir_frame.dtype != np.uint8 else nir_frame,
+            cv2.COLOR_GRAY2RGB,
+        )
+        combined = np.hstack([red_vis, nir_vis])
+        _, img_bytes = cv2.imencode(".jpg", combined, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        img_b64 = base64.b64encode(img_bytes.tobytes()).decode()
+
+        # Build prompt
+        user_prompt = build_analysis_prompt(weather, solar, timestamp)
+
+        # POST to REST API
+        payload = json.dumps({
+            "prompt": SYSTEM_PROMPT + "\n\n" + user_prompt,
+            "image": img_b64,
+            "max_new_tokens": 512,
+            "temperature": 0.1,
+        }).encode()
+
+        try:
+            req = urllib.request.Request(
+                f"{self._api_url.rstrip('/')}/api/generate",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            resp = urllib.request.urlopen(req, timeout=30)
+            result = json.loads(resp.read().decode())
+            response_text = result.get("response", result.get("text", ""))
+
+            latency = (time.time() - t0) * 1000
+            parsed = self._parse_response(response_text)
+
+            return {
+                "corrections": {
+                    "skip_layers": parsed.get("skip_layers", []),
+                    "cloud_cover_adj": parsed.get("cloud_cover_adj"),
+                    "confidence": parsed.get("confidence", 0.5),
+                },
+                "scene": {
+                    "vegetation_pct": parsed.get("vegetation_pct", 50),
+                    "soil_pct": parsed.get("soil_pct", 25),
+                    "artificial_pct": parsed.get("artificial_pct", 25),
+                    "shadow_pct": parsed.get("shadow_pct", 0),
+                    "illumination": parsed.get("illumination_quality", "uniform"),
+                    "haze": parsed.get("haze_detected", False),
+                    "interframe_change": parsed.get("interframe_change", False),
+                },
+                "explanation": parsed.get("explanation",
+                                          parsed.get("scene_description", "Analysis complete")),
+                "confidence": parsed.get("confidence", 0.5),
+                "raw_output": response_text,
+                "latency_ms": round(latency, 1),
+                "source": "vila_rest_api",
+            }
+        except Exception as e:
+            print(f"  ⚠️  VILA API call failed ({e}), using heuristic fallback")
+            return self._heuristic_analysis(red_frame, nir_frame, weather, solar)
 
     def _vlm_analysis(self, red_frame, nir_frame, weather, solar, timestamp):
         """Run VILA VLM inference on the image pair."""
