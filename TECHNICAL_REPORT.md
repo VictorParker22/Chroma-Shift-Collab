@@ -111,9 +111,9 @@ This entire sequence takes roughly five seconds, dominated by the mechanical fil
 
 A central challenge of ground-level multispectral imaging is converting raw camera digital numbers (DN) to values comparable across captures taken under different illumination conditions. Satellite missions solve this problem with atmospheric correction models and periodic vicarious calibration against instrumented ground targets. For an autonomous field station without human operators, neither approach is practical: the system must self-calibrate using only the data available at the moment of capture.
 
-Chroma-Shift addresses this with a seven-layer radiometric correction pipeline (`radiometric.py`) that applies additive, independent corrections. Each layer targets a distinct physical effect, and later layers catch artifacts that earlier layers miss. The pipeline accepts optional overrides from a Vision-Language Model (see Section 5.2) that can selectively disable or adjust layers based on scene-level understanding.
+Chroma-Shift addresses this with a seven-layer radiometric correction pipeline (`radiometric.py`) that applies sequential, independent corrections. Each layer targets a distinct physical effect, and later layers catch artifacts that earlier layers miss. The pipeline accepts optional overrides from a cloud-hosted Vision-Language Model (see Section 5.2) that can selectively disable or adjust layers based on scene-level understanding. The pipeline has been validated against a comprehensive test suite of 109 assertions covering edge cases, seasonal coverage, cross-layer interactions, and known-input NDVI consistency checks.
 
-**Layer 1 — Auto-Exposure Normalization.** The camera's exposure time and gain are read for each frame via OpenCV properties. Raw pixel values are divided by (exposure × gain) to convert DN to relative radiance. This removes the camera's automatic compensation for changing light levels, ensuring that two frames captured seconds apart under different auto-exposure settings produce comparable radiance values.
+**Layer 1 — Auto-Exposure Normalization.** The camera's exposure time and gain are read for each frame via OpenCV properties. Raw pixel values are divided by (exposure × gain) to convert DN to relative radiance. After normalization, both frames are renormalized to a shared 0–1 range using the maximum value across both bands. This renormalization step, added after validation testing revealed that unbounded post-normalization values could cause downstream layer thresholds to fail, preserves the Red/NIR ratio while constraining the dynamic range. This removes the camera's automatic compensation for changing light levels, ensuring that two frames captured seconds apart under different auto-exposure settings produce comparable radiance values.
 
 **Layer 2 — Dark Object Subtraction (Chavez 1988).** The 1st-percentile pixel value in each band is computed and subtracted from all pixels. This follows the method described by Chavez (1988): the darkest object in the scene (deep shadow, dark soil) should have near-zero surface reflectance, so any measured signal from those pixels is attributable to atmospheric path radiance and sensor offset. Even at ground level, scattered skylight adds a measurable baseline that this step removes.
 
@@ -121,7 +121,7 @@ Chroma-Shift addresses this with a seven-layer radiometric correction pipeline (
 
 **Layer 4 — Cloud Transmittance Modeling.** Cloud cover percentage from the National Weather Service API is converted to a ground-level transmittance estimate using the Kasten & Czeplak (1980) empirical model: T = 1 − 0.75 × (C/100)². Clear sky (0% cloud) gives T = 1.0; full overcast (100%) gives T = 0.25. Dividing by T normalizes radiance to clear-sky equivalent, enabling meaningful comparison of readings taken under partly cloudy versus clear conditions.
 
-**Layer 5 — Inter-Frame Illumination Matching.** Because Red and NIR frames are captured 3–5 seconds apart through the filter wheel, a passing cloud can illuminate the two frames differently, corrupting the NDVI ratio. This layer compares mean brightness across pseudo-invariant features (PIFs) — surfaces whose reflectance does not change seasonally, such as concrete paths, stone monuments, and asphalt. If brightness differs by more than 10%, the dimmer frame is scaled to match. This is the most critical correction for sequential-capture hardware.
+**Layer 5 — Inter-Frame Illumination Matching.** Because Red and NIR frames are captured 3–5 seconds apart through the filter wheel, a passing cloud can illuminate the two frames differently, corrupting the NDVI ratio. This layer compares mean brightness across pseudo-invariant features (PIFs) — surfaces whose reflectance does not change seasonally, such as concrete paths, stone monuments, and asphalt. If brightness differs by more than 10%, the dimmer frame is scaled to match. PIF detection uses an NDVI-based spectral flatness criterion (|NDVI| < 0.15) rather than simple brightness thresholds, which proved more robust in vegetation-heavy scenes where the brightest pixels are healthy canopy rather than concrete. An adaptive noise floor prevents the matching algorithm from amplifying sensor noise in low-signal conditions. This is the most critical correction for sequential-capture hardware.
 
 **Layer 6 — Seasonal Phenology Baseline.** Rather than comparing every reading against the annual-mean NDVI of 0.6493, a weekly baseline curve is derived from the 296 HLS satellite observations. March vegetation in Central Park naturally registers NDVI ~0.35; August peaks near 0.74. Using the seasonally appropriate baseline prevents false stress alerts from normal dormancy in winter and early spring.
 
@@ -186,26 +186,40 @@ The field captures are augmented 15× through random combinations of horizontal 
 
 The classifier reaches **84.17% validation accuracy** after 30 epochs, with the best checkpoint recorded at epoch 19. The trained model is exported to ONNX format and converted to a TensorRT FP16 engine for GPU inference on the Jetson. The TensorRT engine achieves **8.7 ms mean inference latency** (6.3 ms minimum, 12.5 ms maximum) — a 115× speedup over CPU-based PyTorch inference (~1000 ms). The 84.2 MB engine file is stored alongside the ONNX model and loaded automatically at startup.
 
-### 5.2 VILA Vision-Language Scene Analyzer
+### 5.2 Cloud Vision-Language Scene Analyzer
 
-Beyond per-frame classification, the system deploys NVIDIA VILA 1.5-3B — a 3-billion-parameter Vision-Language Model — to perform intelligent scene analysis. Running quantized to 4-bit (AWQ) on the Jetson's GPU, VILA examines side-by-side Red+NIR frame pairs alongside weather data and solar position to produce structured assessments of scene conditions.
+Beyond per-frame classification, the system uses a cloud-hosted Vision-Language Model to perform intelligent scene analysis. The VLM analyzes side-by-side Red+NIR frame pairs alongside weather data and solar position to produce structured assessments of scene conditions that drive the radiometric correction pipeline.
 
-The VLM receives a side-by-side composite of the Red (665 nm) and NIR (850 nm) frames annotated with band labels, along with a natural-language context block containing current weather observations, solar elevation, and capture timestamp. A structured system prompt instructs the model to return a JSON object containing:
+#### Edge-to-Cloud Architecture
+
+The scene analysis module (`vila_analyzer.py`) implements a four-mode priority chain:
+
+1. **NVIDIA NIM Cloud API** (preferred): The Jetson encodes the Red+NIR composite as a base64 JPEG and sends it via HTTPS POST to NVIDIA's Inference Microservices (NIM) platform, which hosts Llama 3.2 90B Vision — a 90-billion-parameter multimodal model running on NVIDIA's data center GPUs. The request uses the OpenAI-compatible chat completions format. This offloads the computationally intensive VLM inference from the 8 GB edge device entirely.
+
+2. **Local REST API**: For deployments with a larger GPU on the local network, the Jetson can call a VILA container running on a separate machine via HTTP REST.
+
+3. **Direct NanoLLM**: When running inside a `dustynv/nano_llm` container on hardware with 16 GB+ RAM, the VILA model can be loaded in-process.
+
+4. **Heuristic fallback**: A rule-based analyzer that uses image statistics — mean brightness, contrast ratio, shadow percentage, and quick NDVI computation — to approximate the same correction decisions at zero GPU cost in under 1 ms. This activates automatically when no VLM endpoint is available or when cloud connectivity is lost.
+
+The decision to offload VLM inference to the cloud was driven by hardware constraints discovered during development: compiling VILA 1.5-3B's MLC model on the 8 GB Orin Nano requires more than 10 GB of RAM for the quantization step alone, which exceeds the device's shared memory budget and causes kernel OOM kills. Rather than compromising on model capability, the cloud approach provides access to a model 30× larger than the original VILA 3B target with no local resource cost.
+
+The VLM receives a side-by-side composite of the Red (665 nm) and NIR (850 nm) frames, along with a natural-language context block containing current weather observations and solar elevation. A structured prompt instructs the model to return a JSON object containing:
 
 - Scene composition estimates (vegetation %, soil %, artificial surface %, shadow %)
 - Illumination quality assessment (uniform, patchy, or poor)
 - Inter-frame change detection (whether lighting shifted between Red and NIR captures)
 - Haze/fog detection
 - Correction layer overrides (which of the 7 layers to skip or adjust)
-- Cloud cover adjustment (refined from the NWS value based on visual evidence)
+- Cloud cover adjustment (refined from NWS value based on visual evidence)
 - Confidence score (0–1)
 - Natural-language explanation suitable for dashboard display
 
+In testing with synthetic multispectral scenes, the cloud VLM correctly identified vegetation-dominant scenes at 80% coverage with 0.8 confidence, accurately assessed illumination quality and haze conditions, and returned valid structured JSON in approximately 5.6 seconds — well within the 10-minute scan cycle budget.
+
 These outputs feed directly into the radiometric correction pipeline as `vila_overrides`, allowing the VLM to dynamically disable unnecessary corrections (e.g., skip DOS under clear conditions) or adjust parameters (e.g., increase cloud transmittance if the scene appears brighter than the NWS report suggests).
 
-When the VILA model is not available (outside the Docker container, or during development), the system falls back to a rule-based heuristic analyzer that uses image statistics — mean brightness, contrast ratio, shadow percentage, quick NDVI computation — to approximate the same correction decisions at zero GPU cost.
-
-This architecture represents a key design principle: **physics-based corrections provide the rigorous foundation, while AI provides the intelligent orchestration**. The VLM does not replace the radiometric math; it decides *which math to apply* based on scene understanding.
+This architecture represents a key design principle: **physics-based corrections provide the rigorous foundation, while AI provides the intelligent orchestration**. The VLM does not replace the radiometric math; it decides *which math to apply* based on scene understanding. And by distributing the workload — DINOv2 classification on-device, VLM reasoning in the cloud — the system maximizes the utilization of both edge and cloud compute.
 
 ---
 
@@ -257,25 +271,27 @@ Each ten-minute scan cycle generates between five and twelve database writes dep
 
 ## 8. System Integration
 
-The complete pipeline is orchestrated by a single Python script (`jetson_main.py`) that runs inside a Docker container on the Jetson:
+The complete pipeline is orchestrated by a single Python script (`jetson_main.py`) running on the Jetson:
 
-1. **Initialization:** Load environment variables, connect to Supabase, initialize the filter wheel via ctypes, open the camera via OpenCV, load the DINOv2 TensorRT engine (with graceful fallback to PyTorch CPU then NDVI-only mode), initialize the VILA scene analyzer (with heuristic fallback), and set up per-zone Kalman filters.
+1. **Initialization:** Load environment variables (including `NVIDIA_NIM_API_KEY` for cloud VLM), connect to Supabase, initialize the filter wheel via ctypes, open the camera via OpenCV, load the DINOv2 TensorRT engine (with graceful fallback to PyTorch CPU then NDVI-only mode), initialize the scene analyzer (auto-selecting cloud VLM or heuristic fallback based on API key availability), and set up per-zone Kalman filters.
 
 2. **Main loop (repeats every N seconds):**
    - Fetch current weather from NWS
    - For each configured field zone:
      - Rotate filter wheel to Red → capture with metadata → rotate to NIR → capture with metadata
      - Compute solar position from timestamp + GPS
-     - Run VILA scene analysis on the Red+NIR pair with weather context
+     - Run scene analysis (cloud VLM or heuristic) on the Red+NIR pair with weather context
      - Apply 7-layer radiometric correction with VLM-generated overrides
      - Compute corrected NDVI and smooth through Kalman filter
      - Compare against seasonal phenology baseline
-     - Run Red frame through DINOv2 TensorRT classifier
-     - Push NDVI reading, VILA explanation, alerts, and zone status to Supabase
+     - Run Red frame through DINOv2 TensorRT classifier (on-device, 8.7 ms)
+     - Push NDVI reading, VLM explanation, quality flags, alerts, and zone status to Supabase
    - Push weather observation with correlated NDVI
    - Push system heartbeat
 
 3. **Graceful shutdown:** Signal handlers catch SIGINT and SIGTERM, closing the camera handle, resetting the filter wheel to the clear position, and allowing in-flight database writes to complete before exit.
+
+The system demonstrates an edge-to-cloud AI architecture: **DINOv2 classification runs locally on the Jetson's GPU** (8.7 ms latency, zero network dependency), while **VLM scene reasoning runs on NVIDIA NIM cloud GPUs** (~5.6 s, using a 90B-parameter model that would be impossible to run on 8 GB of RAM). If internet connectivity is lost, the heuristic fallback activates automatically with no interruption to the monitoring cycle.
 
 The loop interval is configurable from the command line (default: 600 seconds), and individual zones can be targeted for debugging without modifying the codebase.
 
@@ -285,10 +301,15 @@ The loop interval is configurable from the command line (default: 600 seconds), 
 
 The system's principal limitation in its current form is the size of its training dataset. With 171 original field captures, even aggressive augmentation cannot fully capture the visual diversity of an urban park across seasons, weather conditions, and times of day. Model accuracy on mixed-texture scenes (partially shaded paths, sparse ground cover, seasonal transitions) remains below the threshold needed for fully autonomous operation. Each new field visit roughly doubles the useful training data, and the two-phase training pipeline reduces the retraining cycle to under an hour on-device.
 
+The 8 GB RAM constraint of the Jetson Orin Nano proved to be the binding hardware limitation. While the DINOv2 classifier and 7-layer correction pipeline run comfortably on-device, the VILA 3B VLM cannot be compiled locally — the MLC quantization step alone requires more than 10 GB of RAM. The cloud VLM architecture resolves this cleanly, but introduces a dependency on internet connectivity and NVIDIA NIM API availability. The heuristic fallback mitigates this risk for field deployments.
+
+The radiometric pipeline's 109-test validation suite uncovered and resolved several non-obvious bugs during development, including NDVI floating-point overflow from chained normalization layers, PIF detection that incorrectly selected vegetation as invariant features in uniform scenes, and a division-by-zero warning in shadow pixel processing. These discoveries underscore the importance of extensive edge-case testing for any algorithmic pipeline operating on real-world sensor data.
+
 Planned improvements include:
 
 - **Multi-class expansion** beyond the binary healthy/stressed split to distinguish between specific stress types (drought, disease, nutrient deficiency) using the Red-Edge and SWIR filter channels that are already installed in the filter wheel but not yet incorporated into the classification pipeline.
-- **VILA fine-tuning** on domain-specific multispectral imagery to improve the VLM's correction parameter estimates beyond the general-purpose baseline.
+- **On-device VLM via cross-compilation** — compiling the MLC model on a machine with 16 GB+ RAM and transferring the pre-compiled binary to the Jetson, eliminating the cloud dependency while keeping the lightweight 3B model.
+- **VLM prompt optimization** tailored to multispectral NDVI correction, using the accumulating dataset of VLM responses and paired ground-truth NDVI to refine the prompt template.
 - **Weather-NDVI regression model** trained on the accumulating paired database to replace the rule-based stress modifiers with learned relationships once sufficient data has been collected across seasons.
 
 ---
@@ -310,3 +331,5 @@ Claverie, M., Ju, J., Masek, J. G., et al. (2018). The Harmonized Landsat and Se
 Hughes, D. P., & Salathe, M. (2015). An open access repository of images on plant health to enable the development of mobile disease diagnostics. *arXiv preprint arXiv:1511.08060*.
 
 Lin, J., Yin, H., Ping, W., et al. (2024). VILA: On pre-training for visual language models. *Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition*.
+
+Dubey, A., et al. (2024). The Llama 3 herd of models. *arXiv preprint arXiv:2407.21783*.
