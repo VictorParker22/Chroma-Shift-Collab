@@ -139,6 +139,12 @@ class VilaSceneAnalyzer:
          → Set VILA_API_URL env var or pass api_url to constructor
       2. Direct: NanoLLM imported in-process (when running inside the container)
       3. Heuristic fallback: rule-based analysis when VILA isn't available
+
+    NOTE: VILA 3B MLC compilation requires >10GB RAM and will OOM on 8GB
+    Orin Nano. The heuristic fallback (mode 3) is the production path for
+    8GB devices. VLM is available for 16GB+ Orin NX/AGX or cross-compiled
+    models. The heuristic detects vegetation, haze, shadows, and
+    inter-frame brightness shifts in <1ms per frame.
     """
 
     def __init__(self, model_name=VILA_MODEL, api_url=None):
