@@ -1,183 +1,124 @@
 # Chroma-Shift — 3-Minute Video Script
-## From Prototype to Space: Edge-to-Cloud Vegetation Intelligence
+## Adaptive SmallSat Intelligence for Regenerative Agriculture
 
 **Total runtime: 3:00**
+
+> **⚠️ CRITICAL RULE**: A team member must be **visible on camera** throughout the video. AI-generated video content is NOT allowed. Use slides, props, prototypes, and screen recordings as visual aids while you present.
 
 ---
 
 ## PRE-PRODUCTION NOTES
 
-**Tone:** Confident, scientific, but accessible. Think NASA JPL press conference meets startup demo day.
+**Tone:** Confident, passionate, clear. Think NASA pitch day — substance over style.
 
-**Visual style:** Clean cuts. Real hardware footage intercut with screen recordings of data flowing. No flashy transitions — let the tech speak.
+**Setup:** You (Victor) presenting to camera with the hardware prototype visible. Cut to screen recordings and slides as visual aids. You should be the primary visual throughout.
 
-**Music:** Subtle ambient/electronic underscore. Mute during all voiceover. Swell at the finale.
+**Music:** None or very subtle ambient. Your voice is the focus.
 
 ---
 
-## SCENE 1 — THE HOOK (0:00 – 0:20)
+## SCENE 1 — THE PROBLEM (0:00 – 0:25)
 
-### Visual
-Open on a sweeping establishing shot of Central Park from above (drone footage or stock). Quick cut to a close-up of green leaves, then a slow push into a browning leaf edge — the first visible sign of stress.
+### [On camera: Victor, speaking to camera with hardware on desk]
 
-### Voiceover
-> *"By the time you can see a plant dying, it's already too late. Disease, drought, frost damage — they start at the molecular level, days before any human eye can detect them. But there's a wavelength of light that reveals the truth long before the damage is visible."*
+> *"Every two weeks, a satellite flies over a farm and takes a picture. But crops don't wait two weeks. A frost event, a disease outbreak, a failed irrigation line — by the time the next satellite image arrives, the damage is done. The real question isn't whether we can observe from space — it's whether we can observe SMART from space."*
+
+> *"I'm Victor, and Chroma-Shift is an onboard processing system that turns a SmallSat from a passive camera into an adaptive observer — one that decides what to look at, when to look, and what to tell the ground."*
 
 ### On-screen text
-**CHROMA-SHIFT** — *Seeing What the Eye Cannot*
+**CHROMA-SHIFT** — *Adaptive SmallSat Intelligence for Regenerative Agriculture*
 
 ---
 
-## SCENE 2 — THE SCIENCE (0:20 – 0:50)
+## SCENE 2 — THE SCIENCE (0:25 – 0:50)
 
-### Visual
-Split-screen animation: Left side shows a healthy green leaf. Right side shows the same leaf through a near-infrared filter — it glows bright white. Then show a stressed leaf: dimmer in NIR, brighter in Red. Overlay the NDVI formula.
+### [Cut to slide showing Red vs NIR reflectance diagram, then NDVI formula]
 
-### Voiceover
-> *"Healthy plants absorb red light for photosynthesis but reflect near-infrared light from their internal cell structure. When a plant is stressed, this contrast collapses — it reflects more red, less infrared. The Normalized Difference Vegetation Index captures this ratio in a single number, from negative one to positive one."*
+> *"The physics is straightforward. Healthy plants absorb red light and reflect near-infrared. Stressed plants do the opposite. The ratio between these two bands — the NDVI — has been the standard vegetation index since 1974."*
 
-### Visual
-Show the NASA HLS data — a graph of 296 satellite observations over 5 years, the NDVI baseline of 0.6493 for Central Park. Highlight the seasonal curve.
+### [Cut to slide showing NASA HLS data — 296 observations graph]
 
-### Voiceover
-> *"We calibrated our system against five years of NASA's Harmonized Landsat Sentinel-2 satellite data — 296 clear-sky observations over Central Park. This gives us a ground-truth baseline to measure against."*
+> *"We calibrated our system against five years of NASA's Harmonized Landsat Sentinel-2 data — 296 clear-sky observations over Central Park, New York. This gives us a ground-truth seasonal baseline that's directly comparable to satellite measurements."*
 
-### On-screen text
-**296 satellite observations · 5-year NDVI baseline: 0.6493**
+### [Hold up the filter wheel or point to it on the desk]
+
+> *"Our camera captures through narrowband filters at 665 and 850 nanometers — the same bands Sentinel-2 uses."*
 
 ---
 
-## SCENE 3 — THE HARDWARE (0:50 – 1:15)
+## SCENE 3 — THE HARDWARE (0:50 – 1:10)
 
-### Visual
-Close-up beauty shots of the actual hardware on a desk or mounted in the field:
-1. The Jetson Orin Nano — close up of the board, NVIDIA logo visible
-2. The Arducam multispectral camera
-3. The ZWO filter wheel spinning between positions — you can see the filters click into place
-4. The assembled system — camera + filter wheel + Jetson
+### [Pick up the Jetson, show it to camera]
 
-### Voiceover
-> *"The system runs on an NVIDIA Jetson Orin Nano — 8 gigabytes of memory, 1024 CUDA cores, and 32 Tensor Cores, all in a package that draws just 10 watts. An Arducam multispectral camera captures images through a motorized filter wheel with narrowband filters at 665 nanometers — the red absorption peak of chlorophyll — and 850 nanometers in the near-infrared."*
+> *"Everything runs on this — an NVIDIA Jetson Orin Nano. Ten watts, eight gigabytes of RAM, a thousand CUDA cores. This has nearly identical specs to satellite-grade computers like the Xiphos Q8S. If it runs here, it can fly."*
 
-### Visual
-Screen recording showing the capture sequence: filter wheel rotating, Red frame appearing, then NIR frame, then the NDVI heatmap calculated in real-time.
+### [Show the complete system: camera + filter wheel + Jetson]
 
-### Voiceover
-> *"Every ten minutes, it captures a Red and NIR pair, corrects for every environmental variable, and computes a scientifically calibrated NDVI reading. No human intervention, no calibration panels, fully autonomous."*
-
-### On-screen text
-**665 nm Red · 850 nm NIR · 10-min cycles · 10W power**
+> *"Camera, filter wheel, edge processor — assembled for under a thousand dollars. The entire pipeline — capture, correction, classification, and adaptive scheduling — runs on this hardware."*
 
 ---
 
-## SCENE 4 — THE SELF-CALIBRATING PIPELINE (1:15 – 1:50)
+## SCENE 4 — THE SELF-CALIBRATING PIPELINE (1:10 – 1:40)
 
-### Visual
-Animated diagram of the 7-layer pipeline. Each layer lights up as it's described. Show arrows flowing through the pipeline with sample numbers. This is the technical centerpiece — make it look clean and impressive.
+### [Cut to slide showing 7-layer pipeline diagram]
 
-```
-RAW CAPTURE
-    ↓
-Layer 1: Auto-Exposure Normalization
-    ↓
-Layer 2: Dark Object Subtraction (Chavez 1988)
-    ↓
-Layer 3: Solar Zenith Correction (Spencer 1971)
-    ↓
-Layer 4: Cloud Transmittance (Kasten & Czeplak 1980)
-    ↓
-Layer 5: Inter-Frame PIF Matching ★ NOVEL
-    ↓
-Layer 6: Seasonal Phenology (NASA HLS Baseline)
-    ↓
-Layer 7: Kalman Temporal Filter
-    ↓
-CALIBRATED NDVI
-```
+> *"Here's what makes this different. Satellite missions use ground calibration panels and atmospheric models that don't work for autonomous, continuous monitoring. We built a seven-layer self-calibrating pipeline that corrects for everything — exposure drift, atmospheric haze, solar angle, cloud cover, illumination changes between frames, seasonal vegetation cycles, and measurement noise."*
 
-### Voiceover
-> *"The core innovation is a seven-layer self-calibrating radiometric correction pipeline. It corrects for camera exposure, atmospheric haze, solar angle, cloud cover, illumination changes between captures, seasonal vegetation cycles, and temporal noise — all without calibration panels. Layer five is particularly novel: it uses NDVI-based spectral flatness to detect concrete and stone surfaces as pseudo-invariant features, then matches illumination between the Red and NIR frames captured seconds apart. This is critical because a passing cloud during the three-second filter change would otherwise corrupt the entire NDVI calculation."*
+### [Cut to slide: "109/109 TESTS PASSING"]
 
-### Visual
-Show the test results: **109/109 TESTS PASSING** in green. Brief clip of test output scrolling.
+> *"Every layer is validated. 109 automated tests covering edge cases, seasonal coverage, and cross-layer interactions. We found and fixed bugs that wouldn't show up in simple testing — floating-point overflow, pseudo-invariant feature misdetection, shadow pixel artifacts."*
 
-### Voiceover
-> *"The pipeline is validated against 109 automated tests covering every layer with edge cases, seasonal coverage, and known-input consistency checks."*
-
-### On-screen text
-**7-layer pipeline · Panel-free · 109/109 tests · Published methodologies**
+> *"Layer five is our novel contribution: using NDVI-based spectral flatness to detect invariant surfaces. Traditional methods use brightness, which fails when vegetation is the brightest thing in the scene."*
 
 ---
 
-## SCENE 5 — THE AI BRAIN (1:50 – 2:20)
+## SCENE 5 — ADAPTIVE SENSING (1:40 – 2:10)
 
-### Visual
-Animation showing the edge-to-cloud architecture. The Jetson on the left, NVIDIA cloud on the right, with data flowing between them.
+### [Cut to slide showing adaptive scheduling diagram]
 
-```
-    JETSON ORIN NANO                    NVIDIA CLOUD
-  ┌───────────────────┐            ┌──────────────────┐
-  │  Camera Capture   │            │  NVIDIA NIM API  │
-  │  7-Layer Pipeline │            │                  │
-  │  DINOv2 (8.7ms)  │───HTTPS───▶│  Llama 3.2 90B   │
-  │  Kalman Filter    │◀──JSON────│  Vision (5.6s)   │
-  │  Supabase Push    │            │                  │
-  └───────────────────┘            └──────────────────┘
-```
+> *"Current satellites observe on fixed schedules. Chroma-Shift observes on demand. Seven signals drive the scheduling — NDVI stress, scene change rate, weather stability, solar position, AI confidence, illumination variability, and power state."*
 
-### Voiceover
-> *"Two AI systems work together. On-device, a DINOv2 neural network — trained by Meta on 142 million images and optimized with NVIDIA TensorRT — classifies each frame as healthy or stressed vegetation in just 8.7 milliseconds. In the cloud, a 90-billion-parameter Llama Vision model hosted on NVIDIA's NIM platform analyzes the scene: it sees the multispectral image pair alongside weather data and solar position, then decides which correction layers to apply and how to adjust them. It returns structured JSON — vegetation percentage, haze detection, illumination quality, confidence scores — all feeding directly into the radiometric pipeline."*
+### [Cut to screen recording showing adaptive scheduler output]
 
-### Visual
-Show the actual cloud VLM response: the JSON output with 80% vegetation, 0.8 confidence. Show it feeding into the pipeline.
+> *"During a frost event, the system drops to two-minute intervals and ranks the most stressed zones first. During stable growth, it extends to thirty minutes and enters sleep mode at 3.5 watts. This means the satellite observes MORE when it matters and conserves power when it doesn't."*
 
-### Voiceover
-> *"If the internet goes down, a rule-based heuristic takes over in under one millisecond. Zero downtime, graceful degradation — the system never stops monitoring."*
-
-### On-screen text
-**DINOv2 on-device: 8.7ms · Llama 90B cloud: 5.6s · Heuristic fallback: <1ms**
+> *"And here's the bandwidth story: instead of downlinking a 500-kilobyte image, we downlink 1.3 kilobytes of processed telemetry. That's a 99.7% reduction. One S-band pass can carry thousands of observations instead of a handful of images."*
 
 ---
 
-## SCENE 6 — THE DATA (2:20 – 2:35)
+## SCENE 6 — EDGE-TO-CLOUD AI (2:10 – 2:35)
 
-### Visual
-Screen recording of the Supabase dashboard showing real-time NDVI data flowing in. Show the dashboard with charts, stress alerts, weather correlations. Make it look alive with data updating.
+### [Cut to slide showing DINOv2 on-device + cloud VLM architecture]
 
-### Voiceover
-> *"Every reading — NDVI values, AI classifications, weather correlations, VLM scene analyses — flows to a Supabase cloud database in real-time. The dashboard correlates vegetation stress with temperature, humidity, rainfall, and cloud cover from the National Weather Service. When stress exceeds the seasonal threshold, the system generates automated alerts with specific recommendations."*
+> *"Two AI systems work together. On-device, a DINOv2 classifier runs at 8.7 milliseconds per frame — fast enough for real-time processing. In the cloud — or on a ground station — a 90-billion-parameter Vision Language Model analyzes the scene and decides which correction layers to apply. If the radio link is down, a rule-based heuristic takes over in under one millisecond. Zero downtime."*
 
-### On-screen text
-**Real-time telemetry · Weather correlation · Automated alerts**
+### [Cut to screen recording of live VLM response: JSON output]
 
----
-
-## SCENE 7 — FROM PROTOTYPE TO SPACE (2:35 – 2:55)
-
-### Visual
-Start with the prototype on the desk. Dissolve to a rendering or map showing multiple stations across a city. Then a globe view showing stations across agricultural regions. Finally, show a satellite in orbit with ground stations feeding up validation data.
-
-### Voiceover
-> *"Today, Chroma-Shift monitors one park. But the architecture is designed to scale. A network of autonomous stations — self-calibrating, weather-aware, AI-driven — could blanket agricultural regions, reforestation sites, or urban forests with continuous ground-truth data. This data doesn't just stay on Earth. Each station's NDVI readings, calibrated against the same NASA HLS baseline that satellite sensors use, become ground-truth validation points for next-generation orbital instruments. The same technology that monitors a single tree in Central Park could help calibrate the sensors that monitor every forest on the planet."*
-
-### On-screen text
-**One station → City network → Global deployment → Satellite validation**
+> *"The VLM sees the actual multispectral image pair plus weather data, and returns structured JSON — vegetation percentage, haze detection, illumination quality, correction overrides. Physics provides the foundation; AI provides the orchestration."*
 
 ---
 
-## SCENE 8 — CLOSING (2:55 – 3:00)
+## SCENE 7 — FROM GROUND TO ORBIT (2:35 – 2:52)
 
-### Visual
-Final shot: the Jetson system in the field, LED glowing, camera pointed at vegetation. Fade to the Chroma-Shift logo.
+### [Back on camera: Victor, speaking directly to camera]
 
-### Voiceover
-> *"Chroma-Shift. Seeing what the eye cannot."*
+> *"Right now, this is a ground-level testbed producing real NDVI data in Central Park. But the algorithms, the power budget, and the compute requirements are identical to what would run on a 6U CubeSat. The path from here to orbit is thermal-vacuum qualification, radiation-tolerant ARM porting, and payload integration — engineering steps, not research unknowns."*
+
+> *"And the market is ready. Precision agriculture is an 8.5 billion dollar market. But this framework isn't limited to agriculture — wildfire monitoring, deforestation detection, carbon credit verification, flood mapping — any application that needs adaptive, intelligent observation from space."*
+
+---
+
+## SCENE 8 — CLOSING (2:52 – 3:00)
+
+### [Victor, holding the Jetson + camera prototype]
+
+> *"The question isn't whether we can observe from space. It's whether we can observe smart. Chroma-Shift is the onboard intelligence that makes that happen."*
 
 ### On-screen text
 ```
 CHROMA-SHIFT
-Self-Calibrating Multispectral Vegetation Intelligence
-NVIDIA Jetson Orin Nano · DINOv2 · NVIDIA NIM · NASA HLS
+Adaptive Onboard Processing for Regenerative Agriculture SmallSats
+NVIDIA Jetson · DINOv2 · NASA HLS · Self-Calibrating Pipeline
 github.com/VictorParker22/Chroma-Shift
 ```
 
@@ -187,47 +128,60 @@ github.com/VictorParker22/Chroma-Shift
 
 | Scene | Duration | Cumulative | Content |
 |-------|----------|------------|---------|
-| 1 - Hook | 20s | 0:20 | Problem statement, emotional hook |
-| 2 - Science | 30s | 0:50 | NDVI physics, satellite baseline |
-| 3 - Hardware | 25s | 1:15 | Jetson, camera, filter wheel demo |
-| 4 - Pipeline | 35s | 1:50 | 7-layer correction, validation |
-| 5 - AI Brain | 30s | 2:20 | DINOv2 + cloud VLM architecture |
-| 6 - Data | 15s | 2:35 | Dashboard, weather, alerts |
-| 7 - Vision | 20s | 2:55 | Scale from prototype to space |
-| 8 - Close | 5s | 3:00 | Logo, tagline, GitHub |
+| 1 - Problem | 25s | 0:25 | Fixed schedules fail, intro yourself |
+| 2 - Science | 25s | 0:50 | NDVI physics, NASA HLS calibration |
+| 3 - Hardware | 20s | 1:10 | Jetson = SmallSat proxy, show hardware |
+| 4 - Pipeline | 30s | 1:40 | 7-layer correction, 109 tests, Layer 5 novelty |
+| 5 - Adaptive | 30s | 2:10 | Smart scheduling, bandwidth reduction |
+| 6 - AI | 25s | 2:35 | DINOv2 on-device + cloud VLM |
+| 7 - Vision | 17s | 2:52 | Ground to orbit path, market |
+| 8 - Close | 8s | 3:00 | Call to action, GitHub |
 
 ---
 
-## B-ROLL SHOT LIST
+## SLIDES TO PREPARE
 
-Capture these specific shots for the video:
-
-1. **Central Park establishing** — wide shot showing trees/grass (phone or drone)
-2. **Leaf close-up** — healthy green leaf, then browning/stressed leaf
-3. **Jetson hero shot** — board on desk, clean background, NVIDIA logo visible
-4. **Camera + filter wheel** — close-up of the assembled imaging system
-5. **Filter wheel spinning** — slow-motion or close-up of filters clicking into position
-6. **Screen: capture sequence** — terminal showing Red/NIR capture in real-time
-7. **Screen: test results** — 109/109 TESTS PASSED in terminal
-8. **Screen: VLM response** — JSON output from NVIDIA NIM
-9. **Screen: dashboard** — Supabase dashboard with live NDVI charts
-10. **System in field** — the complete system outdoors near vegetation
-11. **Night shot** (optional) — LED glow indicating autonomous operation
+1. **Title slide**: "Chroma-Shift — Adaptive SmallSat Intelligence for Regenerative Agriculture"
+2. **Red vs NIR diagram**: Healthy leaf showing absorption/reflection
+3. **NASA HLS graph**: 296 observations, seasonal NDVI curve, 0.6493 mean
+4. **7-layer pipeline diagram**: Flow chart with layer names
+5. **Test results**: "109/109 Assertions Passing" screenshot
+6. **Adaptive scheduling diagram**: Signals → scheduler → interval/priority
+7. **Adaptive scheduler output**: Terminal screenshot showing 4 scenarios
+8. **Bandwidth comparison**: Table — raw image (500KB) vs telemetry (1.3KB)
+9. **Edge-to-cloud architecture**: Jetson ←→ NVIDIA NIM diagram
+10. **VLM JSON response**: Screenshot of actual cloud analysis output
+11. **SWAP comparison**: Jetson vs Xiphos Q8S vs OrbitsEdge table
+12. **TRL roadmap**: Phase 1–4 timeline (TRL 4 → 7)
+13. **Market**: $8.5B precision ag, 5 beyond-agriculture applications
 
 ---
 
-## KEY TALKING POINTS FOR JUDGES
+## B-ROLL TO CAPTURE
 
-If there's a Q&A section, be prepared to discuss:
+1. **You presenting** — multiple angles, clear audio, good lighting
+2. **Hardware hero shots** — Jetson, camera, filter wheel close-ups
+3. **Filter wheel spinning** — show the physical mechanism
+4. **Screen: pipeline test results** — 109/109 passing in terminal
+5. **Screen: adaptive scheduler** — 4 scenarios running
+6. **Screen: VLM response** — live JSON from NVIDIA NIM
+7. **Screen: dashboard** — Supabase with live data
 
-1. **"Why not just use a satellite?"** — Temporal resolution. Satellites revisit every 2-16 days. We capture every 10 minutes. Stress can develop and cause irreversible damage within 48 hours.
+---
 
-2. **"Why not use calibration panels?"** — Panels require maintenance, can be vandalized or weathered, and don't scale. Our self-calibrating pipeline uses physics + AI to achieve the same goal autonomously.
+## JUDGE Q&A PREPARATION
 
-3. **"How accurate is it compared to satellite?"** — We calibrate against the same HLS baseline. Our NDVI readings are directly comparable, and our pipeline is validated against 109 automated tests.
+1. **"This is a ground station, not a satellite."**
+   → "The Jetson Orin Nano has nearly identical specs to the Xiphos Q8S flight computer. Everything we demonstrated — the pipeline, the adaptive scheduler, the AI — runs within SmallSat power and compute constraints. The path to orbit is engineering integration, not algorithmic research."
 
-4. **"What about the cloud dependency?"** — The heuristic fallback activates in under 1ms. DINOv2 runs entirely on-device. The system never stops monitoring, even offline.
+2. **"How does adaptive sensing actually reduce costs?"**
+   → "99.7% bandwidth reduction — 1.3 KB telemetry vs 500 KB raw images. During stable periods, the system sleeps at 3.5W. Over a mission lifetime, this extends battery life by 40-60% compared to fixed-schedule observation."
 
-5. **"How does this scale?"** — Each station is fully autonomous. Add a station, plug it in, it self-calibrates. The cloud VLM and Supabase can handle thousands of stations.
+3. **"What about radiation tolerance?"**
+   → "The algorithms are pure Python math with no GPU-specific dependencies except DINOv2 inference. The pipeline ports directly to radiation-tolerant ARM/FPGA platforms. DINOv2 can be quantized for FPGA inference using Vitis AI."
 
-6. **"What's novel?"** — NDVI-based PIF detection (Layer 5), the 4-mode VLM priority chain, and the concept of using a 90B cloud VLM to orchestrate a physics-based correction pipeline on an edge device.
+4. **"Why not just use existing satellite data?"**
+   → "Temporal resolution. Satellites revisit every 2-16 days. Our adaptive scheduler captures at 2-30 minute intervals. Stress events develop and become irreversible within 24-48 hours."
+
+5. **"What's your unfair advantage?"**
+   → "Working code. 109 tests passing. Live cloud VLM integration. NASA HLS calibration. Most proposals are PowerPoints — we have a running prototype on flight-equivalent hardware."
