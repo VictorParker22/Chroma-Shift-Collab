@@ -7,9 +7,11 @@ applies 5x augmentation, merges with field captures, and builds the final
 train/val dataset for DINOv2 training.
 
 Usage:
-    python build_dataset.py                     # full pipeline
-    python build_dataset.py --skip-download     # skip download (already have data)
-    python build_dataset.py --augment-factor 10 # 10x augmentation
+    python build_dataset.py                          # full pipeline
+    python build_dataset.py --skip-download          # skip download (already have data)
+    python build_dataset.py --augment-factor 10      # 10x augmentation
+    python build_dataset.py --max-per-source 500     # limit PlantVillage/PlantDoc per class
+    python build_dataset.py --field-only             # field captures only (no PlantVillage)
 """
 
 import os
@@ -109,8 +111,9 @@ def classify_plantdoc_folder(folder_name):
     return "stressed_soil"
 
 
-def curate_plantvillage(pv_dir):
-    """Sort PlantVillage images into healthy/stressed."""
+def curate_plantvillage(pv_dir, max_per_class=None):
+    """Sort PlantVillage images into healthy/stressed.
+    If max_per_class is set, randomly sample up to that many per class."""
     # PlantVillage has: raw/color/ and raw/grayscale/ and raw/segmented/
     # Use color images (most useful for DINOv2)
     color_dir = pv_dir / "raw" / "color"
@@ -118,33 +121,41 @@ def curate_plantvillage(pv_dir):
         print(f"  ⚠️  PlantVillage color dir not found at {color_dir}")
         return 0, 0
 
-    healthy_count = 0
-    stressed_count = 0
-
+    # Collect all images by class first
+    by_class = {"healthy_vegetation": [], "stressed_soil": []}
     for class_dir in sorted(color_dir.iterdir()):
         if not class_dir.is_dir():
             continue
         label = classify_plantvillage_folder(class_dir.name)
-        dest_dir = CURATED_DIR / label
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
         for img_path in class_dir.iterdir():
             if is_image(img_path):
-                dest = dest_dir / f"pv_{class_dir.name}_{img_path.name}"
-                if not dest.exists():
-                    shutil.copy2(img_path, dest)
-                if label == "healthy_vegetation":
-                    healthy_count += 1
-                else:
-                    stressed_count += 1
+                by_class[label].append((img_path, f"pv_{class_dir.name}_{img_path.name}"))
+
+    # Sample if capped
+    healthy_count = 0
+    stressed_count = 0
+    for label, items in by_class.items():
+        if max_per_class and len(items) > max_per_class:
+            random.shuffle(items)
+            items = items[:max_per_class]
+        dest_dir = CURATED_DIR / label
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for img_path, dest_name in items:
+            dest = dest_dir / dest_name
+            if not dest.exists():
+                shutil.copy2(img_path, dest)
+            if label == "healthy_vegetation":
+                healthy_count += 1
+            else:
+                stressed_count += 1
 
     return healthy_count, stressed_count
 
 
-def curate_plantdoc(pd_dir):
-    """Sort PlantDoc images into healthy/stressed."""
-    healthy_count = 0
-    stressed_count = 0
+def curate_plantdoc(pd_dir, max_per_class=None):
+    """Sort PlantDoc images into healthy/stressed.
+    If max_per_class is set, randomly sample up to that many per class."""
+    by_class = {"healthy_vegetation": [], "stressed_soil": []}
 
     # PlantDoc has train/ and test/ directories with class subfolders
     for split in ["train", "test"]:
@@ -155,18 +166,26 @@ def curate_plantdoc(pd_dir):
             if not class_dir.is_dir():
                 continue
             label = classify_plantdoc_folder(class_dir.name)
-            dest_dir = CURATED_DIR / label
-            dest_dir.mkdir(parents=True, exist_ok=True)
-
             for img_path in class_dir.iterdir():
                 if is_image(img_path):
-                    dest = dest_dir / f"pd_{class_dir.name}_{img_path.name}"
-                    if not dest.exists():
-                        shutil.copy2(img_path, dest)
-                    if label == "healthy_vegetation":
-                        healthy_count += 1
-                    else:
-                        stressed_count += 1
+                    by_class[label].append((img_path, f"pd_{class_dir.name}_{img_path.name}"))
+
+    healthy_count = 0
+    stressed_count = 0
+    for label, items in by_class.items():
+        if max_per_class and len(items) > max_per_class:
+            random.shuffle(items)
+            items = items[:max_per_class]
+        dest_dir = CURATED_DIR / label
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for img_path, dest_name in items:
+            dest = dest_dir / dest_name
+            if not dest.exists():
+                shutil.copy2(img_path, dest)
+            if label == "healthy_vegetation":
+                healthy_count += 1
+            else:
+                stressed_count += 1
 
     return healthy_count, stressed_count
 
@@ -380,6 +399,10 @@ def main():
                         help="Skip augmentation")
     parser.add_argument("--no-balance", action="store_true",
                         help="Don't balance classes")
+    parser.add_argument("--max-per-source", type=int, default=None,
+                        help="Max images per class from PlantVillage/PlantDoc (field caps uncapped)")
+    parser.add_argument("--field-only", action="store_true",
+                        help="Use only field captures (skip PlantVillage/PlantDoc)")
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════════════════════╗")
@@ -404,14 +427,22 @@ def main():
 
     # 2. Curate into binary classes
     print("\n  Step 2: Curating into healthy/stressed classes …")
+    max_src = args.max_per_source
+    if max_src:
+        print(f"    ⚡ Capping PlantVillage/PlantDoc to {max_src} images/class")
 
-    pv_h, pv_s = curate_plantvillage(pv_dir)
-    print(f"    PlantVillage → healthy={pv_h:,}  stressed={pv_s:,}")
+    if args.field_only:
+        pv_h, pv_s, pd_h, pd_s = 0, 0, 0, 0
+        print("    PlantVillage → SKIPPED (--field-only)")
+        print("    PlantDoc     → SKIPPED (--field-only)")
+    else:
+        pv_h, pv_s = curate_plantvillage(pv_dir, max_per_class=max_src)
+        print(f"    PlantVillage → healthy={pv_h:,}  stressed={pv_s:,}")
 
-    pd_h, pd_s = curate_plantdoc(pd_dir)
-    print(f"    PlantDoc     → healthy={pd_h:,}  stressed={pd_s:,}")
+        pd_h, pd_s = curate_plantdoc(pd_dir, max_per_class=max_src)
+        print(f"    PlantDoc     → healthy={pd_h:,}  stressed={pd_s:,}")
 
-    fc_h, fc_s = curate_field_captures()
+    fc_h, fc_s = curate_field_captures()  # field caps are NEVER capped
     print(f"    Field caps   → healthy={fc_h:,}  stressed={fc_s:,}")
 
     total_h = pv_h + pd_h + fc_h
