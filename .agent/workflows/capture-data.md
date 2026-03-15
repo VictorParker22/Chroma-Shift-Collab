@@ -49,4 +49,4 @@ python3 build_dataset.py
 - Capture in varied lighting: sunny, cloudy, morning, afternoon
 - Include diverse surfaces: grass, bushes, trees, dirt, concrete, stone
 - Aim for 50/50 healthy/stressed class balance
-- Current dataset: 171 captures from March 2026
+- Current dataset: 366 captures from March 2026

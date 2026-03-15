@@ -17,7 +17,7 @@ The complete pipeline — capture, correction, classification, adaptive scheduli
 | Criterion | How Chroma-Shift Addresses It |
 |-----------|------------------------------|
 | **Creativity** | AI-orchestrated correction pipeline where a VLM dynamically decides which physics layers to apply; NDVI-based PIF detection (novel); 4-mode VLM priority chain |
-| **Technical Feasibility** | Running code validated on 10W hardware with 109 automated tests; 8.7 ms on-device inference; adaptive scheduling from 2–30 min |
+| **Technical Feasibility** | Running code validated on 10W hardware with 109 automated tests; 94.4% accuracy, 8.7 ms on-device inference; adaptive scheduling from 2–30 min |
 | **Impact** | >95% reduction in downlink volume (send 1.3 KB telemetry vs. 500 KB raw image); early stress detection days before satellite revisit would catch it |
 | **Business Model** | $8.5B precision agriculture market; satellite ground-truth network; applicable to forestry, reforestation, and disaster monitoring |
 | **Presentation** | Working prototype, live cloud VLM demo, NASA HLS calibration |
@@ -113,7 +113,7 @@ The system extends NASA's HLS surface reflectance product from a post-processed 
 
 **Scenario 2 — Stable Growth Period**: During a week of consistent weather, NDVI readings vary by <0.01 between cycles. The adaptive scheduler extends intervals to 30 minutes and enters reduced-power mode, conserving battery for future stress events. Downlink is limited to hourly summary reports.
 
-**Limitations**: The DINOv2 classifier achieves 84% accuracy with current training data; accuracy improves with additional field captures across seasons. The cloud VLM requires ground-station connectivity during orbital passes; the onboard heuristic provides <1 ms fallback at all times.
+**Limitations**: The DINOv2 classifier achieves 94.4% accuracy on 12,366 training images from 366 field captures. Multi-season data would strengthen generalization further. The cloud VLM requires ground-station connectivity during orbital passes; the onboard heuristic provides <1 ms fallback at all times.
 
 ---
 
