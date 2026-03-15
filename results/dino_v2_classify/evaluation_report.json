@@ -1,0 +1,42 @@
+{
+  "accuracy": 0.944,
+  "confusion_matrix": [
+    [
+      902,
+      26
+    ],
+    [
+      78,
+      850
+    ]
+  ],
+  "classes": [
+    "healthy_vegetation",
+    "stressed_soil"
+  ],
+  "per_class": {
+    "healthy_vegetation": {
+      "precision": 0.9204,
+      "recall": 0.972,
+      "f1": 0.9455,
+      "support": 928,
+      "true_positives": 902,
+      "false_positives": 78,
+      "false_negatives": 26,
+      "true_negatives": 850
+    },
+    "stressed_soil": {
+      "precision": 0.9703,
+      "recall": 0.9159,
+      "f1": 0.9424,
+      "support": 928,
+      "true_positives": 850,
+      "false_positives": 26,
+      "false_negatives": 78,
+      "true_negatives": 902
+    }
+  },
+  "mean_confidence_correct": 0.9212,
+  "mean_confidence_incorrect": 0.696,
+  "total_samples": 1856
+}
