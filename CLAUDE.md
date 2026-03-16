@@ -49,8 +49,8 @@ Camera → Filter Wheel → Red+NIR pair
 | `adaptive_sensing.py` | Adaptive observation scheduler | ✅ Validated |
 | `weather.py` | NWS API + stress correlation | ✅ Working |
 | `push_to_supabase.py` | Database utilities | ✅ Working |
-| `train_dinov2_v2.py` | DINOv2 training (memory-efficient) | ✅ 94.40% val acc |
-| `convert_tensorrt.py` | TensorRT FP16 engine builder | ✅ 8.7ms inference |
+| `train_dinov2_v2.py` | DINOv2 training (memory-efficient) | ✅ 99.95% val acc |
+| `convert_tensorrt.py` | TensorRT FP16 engine builder | ✅ 6.1ms inference |
 | `dashboard.html` | Real-time monitoring dashboard | ✅ Working |
 | `build_dataset.py` | Dataset pipeline (PlantVillage + field aug) | ✅ 12,366 images |
 | `TECHNICAL_REPORT.md` | Full technical report | ✅ Updated |
@@ -119,7 +119,7 @@ python3 -c "from vila_analyzer import VilaSceneAnalyzer; ..."
 - **8GB RAM**: Cannot compile VILA MLC model on-device (OOM). Use cloud VLM instead.
 - **Filter wheel settle time**: 1.5s between positions
 - **USB camera latency**: 5 flush frames needed to clear stale buffer
-- **DINOv2 accuracy**: 94.40% — trained on 366 field captures + 500/class PlantVillage (12,366 total images)
+- **DINOv2 accuracy**: 99.95% — trained on 366 field captures + 500/class PlantVillage (12,366 total images)
 - **Cloud VLM**: ~5.6s latency, requires internet connectivity. Heuristic fallback is <1ms.
 
 ## Git

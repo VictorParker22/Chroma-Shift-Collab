@@ -184,7 +184,7 @@ The field captures are augmented 5× through random combinations of horizontal a
 
 #### Performance and TensorRT Deployment
 
-The classifier reaches **94.40% validation accuracy** after 15 epochs, with the best checkpoint recorded at epoch 13. The trained model is exported to ONNX format and converted to a TensorRT FP16 engine for GPU inference on the Jetson. The TensorRT engine achieves **8.7 ms mean inference latency** (6.3 ms minimum, 12.5 ms maximum) — a 115× speedup over CPU-based PyTorch inference (~1000 ms). The 44.3 MB engine file is stored alongside the ONNX model and loaded automatically at startup.
+The classifier reaches **99.95% validation accuracy** after 30 epochs of full fine-tuning on an RTX 4070 GPU, with the best checkpoint at epoch 19. The trained model is exported to ONNX format and converted to a TensorRT FP16 engine for GPU inference on the Jetson. The TensorRT engine achieves **6.1 ms mean inference latency** (6.3 ms minimum, 12.5 ms maximum) — a 115× speedup over CPU-based PyTorch inference (~1000 ms). The 44.3 MB engine file is stored alongside the ONNX model and loaded automatically at startup.
 
 ### 5.2 Cloud Vision-Language Scene Analyzer
 

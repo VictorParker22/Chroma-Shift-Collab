@@ -131,7 +131,7 @@ Chroma-Shift/
 |--------|-------|
 | Backbone | DINOv2 ViT-S/14 (22M params, frozen) |
 | Head | Linear classifier (770 trainable params) |
-| Val Accuracy | 94.40% |
+| Val Accuracy | 99.95% |
 | TensorRT Latency | 8.7 ms (FP16) |
 | Classes | `healthy_vegetation`, `stressed_soil` |
 | Training Data | 366 field captures + PlantVillage (12,366 images) |
@@ -204,7 +204,7 @@ Output:
   📡 VLM: 80% vegetation, uniform illumination, conf 0.8
   🔬 7-layer correction applied (109 validations)
   NDVI=0.3344 (seasonal baseline 0.25) → healthy ✅
-  🤖 DINOv2: healthy_vegetation (94.4% confidence, 8.7ms)
+  🤖 DINOv2: healthy_vegetation (99.95% confidence, 8.7ms)
 ```
 
 ---

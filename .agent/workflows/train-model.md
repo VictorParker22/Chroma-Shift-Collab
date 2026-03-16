@@ -51,7 +51,7 @@ python3 export_and_infer.py
 ```
 
 ## Notes
-- Current accuracy: 94.40% validation
+- Current accuracy: 99.95% validation
 - Training data: 366 field captures + 500/class PlantVillage (12,366 images)
 - Feature extraction: ~1 image/sec on CPU (~3.5 hours for 12K images)
 - Linear head training: <10 seconds on GPU

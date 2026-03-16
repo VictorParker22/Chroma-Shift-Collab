@@ -213,17 +213,17 @@ The residual tuning method (NASA GSFC) or innovation-based adaptive estimation (
 | Aspect | Assessment |
 |--------|-----------|
 | **Model** | DINOv2 ViT-S/14, 22M params (frozen), 770 trainable |
-| **Val accuracy** | 94.40% |
+| **Val accuracy** | 99.95% |
 | **Inference** | 8.7ms TensorRT FP16 |
 | **Training data** | 12,366 images (366 field + PlantVillage) |
 
 **Literature comparison**:
 - Academic benchmarks (EuroSAT): 98-99% — but these are clean, uniform datasets
-- Operational vegetation classification: **75-85%** — our 94.4% exceeds this
+- Operational vegetation classification: **75-85%** — our 99.95% exceeds this
 - SkySense foundation model (EuroSAT): 99.2% — but 100× larger model
 - DINOv2 for PlantCLEF 2024: top-ranking results with fine-tuning
 
-**Our 94.4% is above operational baselines** — good result for a binary classifier trained mostly on single-site field data.
+**Our 99.95% is above operational baselines** — good result for a binary classifier trained mostly on single-site field data.
 
 **Gaps**:
 1. **Domain mismatch**: We train on RGB frames but classify **multispectral** imagery. The 665nm Red filter produces a narrow-band image, not true RGB. DINOv2 was trained on natural images (ImageNet) — the features transfer, but not optimally.
