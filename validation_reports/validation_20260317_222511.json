@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-03-17T22:25:11.455399+00:00",
+  "image": "data/val/healthy_vegetation/field_field_free_001_20260309_130758_ndvi0.3369_red_aug3.png",
+  "band": "Red (665nm)",
+  "ndvi": 0.3369,
+  "seasonal_baseline": 0.3954,
+  "season": "spring",
+  "week": 11.85,
+  "checks": [
+    {
+      "icon": "\u2705",
+      "message": "NDVI within valid range [-1, 1]",
+      "passed": true
+    },
+    {
+      "icon": "\u2705",
+      "message": "Vegetation detected (NDVI > 0.15)",
+      "passed": true
+    },
+    {
+      "icon": "\u2705",
+      "message": "NDVI plausible for month 3 (expected 0.20\u20130.50)",
+      "passed": true
+    }
+  ],
+  "all_checks_passed": true,
+  "advisory": {
+    "ndvi": 0.3369,
+    "baseline": 0.3954,
+    "deviation": -0.0585,
+    "deviation_pct": -14.8,
+    "health_status": "watch",
+    "health_label": "\ud83d\udfe1 Below Average \u2014 Monitor",
+    "health_summary": "NDVI of 0.337 is 0.058 below the seasonal baseline of 0.395. This is outside normal variance. Low NDVI during spring green-up may indicate delayed emergence, late frost damage, or insufficient moisture.",
+    "ndvi_explanation": "The Normalized Difference Vegetation Index (NDVI) measures how green and active the vegetation is by analyzing reflected light. Your reading of 0.337 indicates: Moderate vegetation \u2014 early growth or late-season decline.",
+    "seasonal_context": "For spring in NYC (week 11.85), the historical average NDVI from 5 years of NASA satellite data is 0.395. NDVI should be rising as plants break dormancy (green-up phase).",
+    "ndvi_category": "moderate",
+    "ndvi_description": "Moderate vegetation \u2014 early growth or late-season decline",
+    "season": "spring",
+    "week": 11.85,
+    "ai_assessment": null,
+    "weather_summary": null,
+    "trend": null,
+    "diagnoses": [
+      {
+        "cause": "mild_variance",
+        "confidence": 0.4,
+        "explanation": "NDVI is slightly below baseline (0.06) \u2014 likely within normal variability.",
+        "recommendation": "No immediate action needed. Continue scheduled monitoring."
+      }
+    ],
+    "primary_recommendation": "No immediate action needed. Continue scheduled monitoring.",
+    "data_quality": [
+      "\u26a0\ufe0f No weather data \u2014 stress diagnosis is less precise",
+      "\u26a0\ufe0f Limited history \u2014 trend analysis unavailable"
+    ],
+    "timestamp": "2026-03-17T22:25:11.455615+00:00",
+    "zone": "Central Park \u2014 Validation Test"
+  }
+}
