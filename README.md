@@ -93,30 +93,32 @@ The core innovation — converts raw camera values to scientifically comparable 
 Chroma-Shift/
 ├── jetson_main.py              # Main scan loop (capture → correct → classify → upload)
 ├── radiometric.py              # 7-layer self-calibrating correction pipeline
+├── crop_advisor.py             # Context-aware farmer advisory system
+├── triage_log.py               # Autonomous decision triage logger (NASA audit)
+├── field_validate.py           # Field validation against NASA baselines
 ├── vila_analyzer.py            # Cloud VLM scene analyzer (4-mode priority chain)
+├── adaptive_sensing.py         # Adaptive observation scheduler
 ├── weather.py                  # NWS API + NDVI-weather stress correlation
 ├── push_to_supabase.py         # Supabase database utilities
 ├── dashboard.html              # Real-time monitoring dashboard
 │
-├── train_dinov2.py             # DINOv2 training (full model)
-├── train_dinov2_v2.py          # DINOv2 training v2 (feature caching, 8GB safe)
+├── train_finetune_gpu.py       # DINOv2 full fine-tuning (RTX 4070 desktop)
+├── train_dinov2_v2.py          # DINOv2 linear probe training (Jetson, 8GB safe)
+├── evaluate_model.py           # Confusion matrix + per-class metrics
 ├── build_dataset.py            # Dataset pipeline (PlantVillage + field augmentation)
-├── export_and_infer.py         # ONNX export + TensorRT conversion
+├── export_and_infer.py         # ONNX export + inference
 ├── convert_tensorrt.py         # TensorRT FP16 engine builder
 │
-├── run_vila.sh                 # VILA container launcher (REST API / interactive)
-├── capture_multispectral_pair.py  # Single Red+NIR capture + NDVI
-├── rapid_capture.py            # Fast field data collection tool
-├── classify_and_sort.py        # NDVI-based dataset labeling
-├── process_ndvi.py             # NASA HLS satellite NDVI processing
-│
+├── SCIENTIFIC_AUDIT.md         # Pipeline audit + layer scoring (8.0/10)
+├── TICKETS.md                  # Improvement tickets (Sprint 1 complete)
 ├── TECHNICAL_REPORT.md         # Full technical report
 ├── CHALLENGE_PAPER.md          # 5-page competition paper
 ├── VIDEO_SCRIPT.md             # 3-minute video script
 │
+├── figures/                    # Paper figures (architecture, confusion matrix, bandwidth)
+├── triage_logs/                # Autonomous triage decision logs
+├── validation_reports/         # Field validation evidence reports
 ├── ndvi_central_park.csv       # Ground-truth NDVI baseline (296 obs, 2019-2023)
-├── nyc-central-park-data/      # NASA HLS raw satellite data
-├── models/                     # Model weights (DINOv2, VILA cache)
 ├── results/                    # Training results + TensorRT engines
 └── lib/                        # ZWO SDK libraries (ARM64)
 ```
@@ -129,10 +131,10 @@ Chroma-Shift/
 
 | Metric | Value |
 |--------|-------|
-| Backbone | DINOv2 ViT-S/14 (22M params, frozen) |
-| Head | Linear classifier (770 trainable params) |
-| Val Accuracy | 99.95% |
-| TensorRT Latency | 8.7 ms (FP16) |
+| Backbone | DINOv2 ViT-S/14 (22M params, fully fine-tuned) |
+| Training | Full fine-tune on RTX 4070 (30 epochs, FP16) |
+| Val Accuracy | 99.95% (1/1,837 misclassified) |
+| TensorRT Latency | 6.1 ms (FP16, Jetson Orin Nano) |
 | Classes | `healthy_vegetation`, `stressed_soil` |
 | Training Data | 366 field captures + PlantVillage (12,366 images) |
 

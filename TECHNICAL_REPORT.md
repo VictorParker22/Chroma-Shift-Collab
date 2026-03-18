@@ -284,20 +284,51 @@ The complete pipeline is orchestrated by a single Python script (`jetson_main.py
      - Apply 7-layer radiometric correction with VLM-generated overrides
      - Compute corrected NDVI and smooth through Kalman filter
      - Compare against seasonal phenology baseline
-     - Run Red frame through DINOv2 TensorRT classifier (on-device, 8.7 ms)
+     - Run Red frame through DINOv2 TensorRT classifier (on-device, 6.1 ms)
      - Push NDVI reading, VLM explanation, quality flags, alerts, and zone status to Supabase
    - Push weather observation with correlated NDVI
    - Push system heartbeat
 
 3. **Graceful shutdown:** Signal handlers catch SIGINT and SIGTERM, closing the camera handle, resetting the filter wheel to the clear position, and allowing in-flight database writes to complete before exit.
 
-The system demonstrates an edge-to-cloud AI architecture: **DINOv2 classification runs locally on the Jetson's GPU** (8.7 ms latency, zero network dependency), while **VLM scene reasoning runs on NVIDIA NIM cloud GPUs** (~5.6 s, using a 90B-parameter model that would be impossible to run on 8 GB of RAM). If internet connectivity is lost, the heuristic fallback activates automatically with no interruption to the monitoring cycle.
+The system demonstrates an edge-to-cloud AI architecture: **DINOv2 classification runs locally on the Jetson's GPU** (6.1 ms latency, zero network dependency), while **VLM scene reasoning runs on NVIDIA NIM cloud GPUs** (~5.6 s, using a 90B-parameter model that would be impossible to run on 8 GB of RAM). If internet connectivity is lost, the heuristic fallback activates automatically with no interruption to the monitoring cycle.
 
 The loop interval is configurable from the command line (default: 600 seconds), and individual zones can be targeted for debugging without modifying the codebase.
 
 ---
 
-## 9. Limitations and Next Steps
+## 9. Farmer Advisory System
+
+Beyond classification, the system generates **context-aware advisories** that explain *why* vegetation is healthy or stressed and *what to do about it*. The `crop_advisor.py` module fuses five data streams:
+
+1. **NDVI measurement** — interpreted against 7 vegetation categories (bare soil through very dense canopy)
+2. **Seasonal baseline** — 5-year NASA HLS average for the current week, with season-specific context
+3. **Weather data** — NWS temperature, humidity, precipitation, and wind used to diagnose specific stress causes (water stress, heat stress, frost damage, waterlogging, wind damage)
+4. **AI classification** — DINOv2 prediction with confidence score
+5. **Historical trend** — declining, stable, or improving NDVI trajectory
+
+Each advisory includes a health label, plain-English explanation, possible causes with confidence scores, and a specific actionable recommendation. This transforms the system from a binary classifier into a **decision support tool** for farmers.
+
+---
+
+## 10. Autonomous Triage Logging
+
+To demonstrate autonomous operation without a human in the loop, the system records every decision in a structured triage log (`triage_log.py`). Each entry captures the complete 8-step reasoning chain:
+
+1. **SENSE** — Raw Red/NIR sensor readings (DN values, exposure, gain)
+2. **CORRECT** — All 7 radiometric correction layers applied with parameters
+3. **MEASURE** — Computed NDVI value with physical validity check
+4. **COMPARE** — Deviation from NASA seasonal baseline
+5. **CLASSIFY** — DINOv2 prediction and confidence
+6. **DIAGNOSE** — Weather-fused stress analysis with possible causes
+7. **ADVISE** — Farmer-facing recommendation generated autonomously
+8. **SCHEDULE** — Adaptive sensing interval decision and reasoning
+
+Each entry also includes a human-readable reasoning chain that summarizes the full decision in natural language, enabling NASA reviewers to trace exactly how the AI arrived at each conclusion. The log is append-only, JSON-lines format, and explicitly records `"human_intervention": false` on every entry.
+
+---
+
+## 11. Limitations and Next Steps
 
 The system's principal limitation in its current form is the size of its training dataset. With 171 original field captures, even aggressive augmentation cannot fully capture the visual diversity of an urban park across seasons, weather conditions, and times of day. Model accuracy on mixed-texture scenes (partially shaded paths, sparse ground cover, seasonal transitions) remains below the threshold needed for fully autonomous operation. Each new field visit roughly doubles the useful training data, and the two-phase training pipeline reduces the retraining cycle to under an hour on-device.
 
@@ -321,6 +352,8 @@ Rouse, J. W., Haas, R. H., Schell, J. A., & Deering, D. W. (1974). Monitoring ve
 Chavez, P. S. (1988). An improved dark-object subtraction technique for atmospheric scattering correction of multispectral data. *Remote Sensing of Environment*, 24(3), 459–479.
 
 Spencer, J. W. (1971). Fourier series representation of the position of the Sun. *Search*, 2(5), 172.
+
+Reda, I., & Andreas, A. (2004). Solar position algorithm for solar radiation applications. *Solar Energy*, 76(5), 577–589. doi:10.1016/j.solener.2003.12.003
 
 Kasten, F., & Czeplak, G. (1980). Solar and terrestrial radiation dependent on the amount and type of cloud. *Solar Energy*, 24(2), 177–189.
 

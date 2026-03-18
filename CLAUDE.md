@@ -29,7 +29,7 @@ Camera → Filter Wheel → Red+NIR pair
     ↓
 ┌─────────────────┬──────────────────────┬───────────────────┐
 │ NDVI Compute    │ DINOv2 TensorRT      │ Cloud VLM         │
-│ (per-pixel)     │ 8.7ms on-device      │ NVIDIA NIM, 5.6s  │
+│ (per-pixel)     │ 6.1ms on-device      │ NVIDIA NIM, 5.6s  │
 └────────┬────────┴──────────┬───────────┴────────┬──────────┘
          └──────────────────┬┘                    │
     Adaptive Scheduler (adaptive_sensing.py)      │
@@ -45,11 +45,16 @@ Camera → Filter Wheel → Red+NIR pair
 |------|---------|--------|
 | `jetson_main.py` | Main scan loop | ✅ Working |
 | `radiometric.py` | 7-layer self-calibrating pipeline | ✅ 109/109 tests |
+| `crop_advisor.py` | Context-aware farmer advisory system | ✅ Working |
+| `triage_log.py` | Autonomous decision triage logger (NASA audit trail) | ✅ Working |
+| `field_validate.py` | Field validation against NASA baselines | ✅ Working |
 | `vila_analyzer.py` | Cloud VLM scene analysis (4-mode priority) | ✅ Live on NIM |
 | `adaptive_sensing.py` | Adaptive observation scheduler | ✅ Validated |
 | `weather.py` | NWS API + stress correlation | ✅ Working |
 | `push_to_supabase.py` | Database utilities | ✅ Working |
-| `train_dinov2_v2.py` | DINOv2 training (memory-efficient) | ✅ 99.95% val acc |
+| `train_dinov2_v2.py` | DINOv2 linear probe training (Jetson, 8GB safe) | ✅ Backup |
+| `train_finetune_gpu.py` | DINOv2 full fine-tuning (RTX 4070 desktop) | ✅ 99.95% val acc |
+| `evaluate_model.py` | Confusion matrix + per-class metrics | ✅ Report generated |
 | `convert_tensorrt.py` | TensorRT FP16 engine builder | ✅ 6.1ms inference |
 | `dashboard.html` | Real-time monitoring dashboard | ✅ Working |
 | `build_dataset.py` | Dataset pipeline (PlantVillage + field aug) | ✅ 12,366 images |
@@ -71,12 +76,12 @@ NVIDIA_NIM_MODEL=meta/llama-3.2-90b-vision-instruct
 ## 7-Layer Radiometric Pipeline
 
 1. Auto-Exposure Normalization (camera gain/exposure)
-2. Dark Object Subtraction (Chavez 1988)
-3. Solar Zenith Correction (Spencer 1971)
-4. Cloud Transmittance Model (Kasten & Czeplak 1980)
+2. Dark Object Subtraction (Chavez 1988 → COST upgrade)
+3. Solar Zenith Correction (NREL SPA, Reda & Andreas 2004, ±0.003°)
+4. Cloud Transmittance Model (Kasten-Czeplak form, Northeast US calibrated k=0.87)
 5. Inter-Frame PIF Matching (**novel** — NDVI-based spectral flatness)
-6. Seasonal Phenology Baseline (NASA HLS 2019-2023)
-7. Kalman Temporal Filter
+6. Seasonal Phenology Baseline (NASA HLS 2019-2023, linear interpolation)
+7. Kalman Temporal Filter (dt-adaptive process noise)
 
 ## VLM Priority Chain
 
@@ -100,18 +105,26 @@ NVIDIA_NIM_MODEL=meta/llama-3.2-90b-vision-instruct
 # Run pipeline
 python3 jetson_main.py --zone T1 --interval 600
 
-# Run radiometric tests
-python3 -m pytest test_radiometric.py -v  # or inline tests
+# Field validation (live capture or from file)
+python3 field_validate.py --from-file captures/image_red.png
 
-# Train DINOv2
-python3 build_dataset.py
-python3 train_dinov2_v2.py --data-dir ./data --results-dir ./results/dino_v2_classify
+# Train DINOv2 (Jetson — linear probe)
+python3 train_dinov2_v2.py --skip-extract --epochs 15
 
-# Build TensorRT engine
-python3 convert_tensorrt.py
+# Train DINOv2 (RTX 4070 — full fine-tune)
+python3 train_finetune_gpu.py --epochs 30
 
-# Test cloud VLM
-python3 -c "from vila_analyzer import VilaSceneAnalyzer; ..."
+# Evaluate model (Docker)
+docker run --rm -v $(pwd):/workspace dustynv/pytorch:2.7-r36.4.0-cu128-24.04 python3 evaluate_model.py
+
+# Build TensorRT engine (Docker)
+docker run --rm --runtime nvidia -v $(pwd):/workspace dustynv/pytorch:2.7-r36.4.0-cu128-24.04 python3 convert_tensorrt.py --validate
+
+# Test crop advisory
+python3 crop_advisor.py
+
+# Test triage log
+python3 triage_log.py
 ```
 
 ## Known Constraints
