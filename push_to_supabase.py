@@ -301,6 +301,33 @@ def update_field_zone(client, zone_id, ndvi):
     return response
 
 
+def push_scan_result(zone_id, ndvi, classification, confidence, advisory, weather=None):
+    """
+    Push a complete scan result to Supabase (NDVI + zone update + alert if needed).
+
+    This is the single-call interface for the full pipeline to push results.
+    """
+    client = get_client()
+
+    # 1. Push NDVI reading
+    push_ndvi_reading(client, ndvi, zone_id, band="NIR", source="jetson")
+
+    # 2. Update field zone
+    update_field_zone(client, zone_id, ndvi)
+
+    # 3. Push alert if stress detected
+    zone = FIELD_ZONES.get(zone_id)
+    baseline = zone["baseline_ndvi"] if zone else 0.4
+    severity, status, _ = detect_stress(ndvi, baseline)
+    if status in ("watch", "alert", "critical"):
+        push_alert(client, zone_id, ndvi, band="NIR", confidence=confidence)
+
+    # 4. Push heartbeat with classification info
+    push_heartbeat(client, mode=f"scan_{classification}", filter_pos=0)
+
+    print(f"  ✅ Full scan result pushed to Supabase (zone {zone_id})")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Satellite ground-truth push
 # ═══════════════════════════════════════════════════════════════════════════
