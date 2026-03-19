@@ -49,7 +49,7 @@ VILA_MODEL = os.environ.get(
 )
 
 # Classes from our DINOv2 classifier
-CLASSES = ["healthy_vegetation", "stressed_soil"]
+CLASSES = ["bare_soil", "healthy_vegetation", "non_vegetation", "stressed_vegetation"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -277,6 +277,55 @@ def generate_advisory(ndvi, seasonal_data, classification=None, weather=None,
             f"Next optimal scan time will be determined by the adaptive scheduler."
         )
 
+    # ── Confidence threshold logic ──
+    # Cross-check DINOv2 classification against NDVI for conflicting signals
+    confidence_flags = []
+    if classification:
+        conf = classification.get("confidence", 0)
+        cls = classification.get("class", "unknown")
+
+        # Flag 1: Low AI confidence (<80%)
+        if conf < 80:
+            confidence_flags.append(
+                f"⚠️ AI confidence is only {conf:.0f}% — classification may be unreliable. "
+                f"Consider VILA VLM second opinion or re-scan."
+            )
+
+        # Flag 2: Classification-NDVI mismatch
+        if cls == "healthy_vegetation" and ndvi < 0.20:
+            confidence_flags.append(
+                f"⚠️ CONFLICT: AI says 'healthy vegetation' but NDVI is very low ({ndvi:.3f}). "
+                f"This may be bare ground with organic matter, not active vegetation."
+            )
+        elif cls == "bare_soil" and ndvi > 0.40:
+            confidence_flags.append(
+                f"⚠️ CONFLICT: AI says 'bare soil' but NDVI is high ({ndvi:.3f}). "
+                f"This area likely has active vegetation beneath."
+            )
+        elif cls in ("stressed_vegetation", "bare_soil") and ndvi > 0.50:
+            confidence_flags.append(
+                f"⚠️ CONFLICT: AI says '{cls}' but NDVI ({ndvi:.3f}) indicates healthy growth. "
+                f"Classification may need retraining for this scene type."
+            )
+
+        # Flag 3: Very split probability (top-2 classes close)
+        probs = []
+        for c in ["healthy_vegetation", "stressed_vegetation", "bare_soil", "non_vegetation"]:
+            probs.append(classification.get(f"{c}_prob", 0))
+        probs.sort(reverse=True)
+        if len(probs) >= 2 and probs[0] > 0 and probs[1] / probs[0] > 0.50:
+            confidence_flags.append(
+                f"⚠️ AMBIGUOUS: Top two classes are close ({probs[0]*100:.0f}% vs {probs[1]*100:.0f}%). "
+                f"Scene may contain mixed land cover."
+            )
+
+    # Override recommendation if uncertain
+    if confidence_flags and not primary_recommendation:
+        primary_recommendation = (
+            "Classification uncertain — recommend re-scan with VILA VLM for detailed scene analysis. "
+            "Manual inspection may be needed."
+        )
+
     # Weather context
     weather_summary = None
     if weather:
@@ -406,6 +455,9 @@ def generate_advisory(ndvi, seasonal_data, classification=None, weather=None,
         # Data quality
         "data_quality": data_quality,
 
+        # Confidence flags (cross-checks)
+        "confidence_flags": confidence_flags,
+
         # Timestamp
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "zone": zone_name,
@@ -442,6 +494,12 @@ def format_advisory_text(advisory):
     if advisory.get("trend"):
         t = advisory["trend"]
         lines.append(f"  {t['icon']} Trend: {t['description']}")
+        lines.append("")
+
+    if advisory.get("confidence_flags"):
+        lines.append("  🎯 CLASSIFICATION CONFIDENCE:")
+        for flag in advisory["confidence_flags"]:
+            lines.append(f"     {flag}")
         lines.append("")
 
     if advisory["diagnoses"]:

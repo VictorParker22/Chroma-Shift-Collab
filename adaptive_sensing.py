@@ -73,7 +73,8 @@ class AdaptiveSensingScheduler:
         self._power_state = "nominal"
 
     def compute_next_interval(self, zone_id, ndvi, seasonal_baseline,
-                               vila_result=None, weather=None, solar=None):
+                               vila_result=None, weather=None, solar=None,
+                               classification=None):
         """
         Compute the next observation interval based on current conditions.
 
@@ -85,6 +86,7 @@ class AdaptiveSensingScheduler:
           - Solar position (longer/skip at night)
           - Power budget (longer if power-constrained)
           - VLM confidence (shorter if VLM uncertain)
+          - DINOv2 classification (shorter if stressed/uncertain)
 
         Args:
             zone_id:            Field zone identifier
@@ -93,6 +95,8 @@ class AdaptiveSensingScheduler:
             vila_result:        Dict from VilaSceneAnalyzer.analyze()
             weather:            NWS weather dict
             solar:              Solar position dict
+            classification:     Dict from DINOv2 classifier
+                                {class, confidence, *_prob}
 
         Returns:
             dict with:
@@ -172,6 +176,30 @@ class AdaptiveSensingScheduler:
             interval = MIN_INTERVAL
             priority = 1.0
             reasons.append("VLM detected inter-frame illumination change")
+
+        # 8. DINOv2 CLASSIFICATION-AWARE SCHEDULING
+        if classification:
+            cls = classification.get("class", "unknown")
+            conf = classification.get("confidence", 0)
+
+            if cls == "stressed_vegetation":
+                interval *= 0.4  # Urgent — scan 2.5× more often
+                priority += 0.4
+                reasons.append(f"stressed vegetation detected ({conf:.0f}%)")
+            elif cls == "bare_soil":
+                interval *= 1.5  # Less urgent — no vegetation to monitor
+                priority -= 0.15
+                reasons.append(f"bare soil — reduced priority ({conf:.0f}%)")
+            elif cls == "non_vegetation":
+                interval *= 2.0  # Skip zone more often
+                priority -= 0.3
+                reasons.append(f"non-vegetation surface — low priority ({conf:.0f}%)")
+
+            # Low confidence → rescan sooner for verification
+            if conf < 80:
+                interval *= 0.6
+                priority += 0.15
+                reasons.append(f"uncertain classification ({conf:.0f}%) — verify sooner")
 
         # --- Enforce bounds ---
         interval = max(MIN_INTERVAL, min(MAX_INTERVAL, interval))
