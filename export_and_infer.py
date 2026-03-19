@@ -29,8 +29,10 @@ RESULTS_DIR = os.path.join(SCRIPT_DIR, "results", "dino_v2_classify")
 BEST_MODEL = os.path.join(RESULTS_DIR, "best_model.pth")
 ONNX_MODEL = os.path.join(RESULTS_DIR, "chroma_shift_classifier.onnx")
 
-CLASSES = ["healthy_vegetation", "stressed_soil"]
-IMAGE_SIZE = 168
+CLASSES_2 = ["healthy_vegetation", "stressed_soil"]
+CLASSES_4 = ["healthy_vegetation", "stressed_vegetation", "bare_soil", "non_vegetation"]
+CLASSES = CLASSES_2  # Default, overridden by model checkpoint
+IMAGE_SIZE = 224
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -63,12 +65,21 @@ class DINOv2Classifier(nn.Module):
 
 
 def load_model(model_path=BEST_MODEL, device=None):
-    """Load trained model for inference."""
+    """Load trained model for inference. Auto-detects 2 or 4 class model."""
+    global CLASSES
     if device is None:
-        device = torch.device("cpu")  # CPU for export/batch — saves GPU RAM
+        device = torch.device("cpu")
 
-    model = DINOv2Classifier(num_classes=len(CLASSES))
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+
+    # Auto-detect classes from checkpoint
+    saved_classes = checkpoint.get("classes", CLASSES_2)
+    if isinstance(saved_classes, list):
+        CLASSES = saved_classes
+    num_classes = len(CLASSES)
+    print(f"  Model classes ({num_classes}): {CLASSES}")
+
+    model = DINOv2Classifier(num_classes=num_classes)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()
@@ -119,12 +130,17 @@ def classify_image(model, device, image_path):
     probs = F.softmax(logits, dim=1)[0].cpu().numpy()
 
     pred_idx = int(np.argmax(probs))
-    return {
+    result = {
         "class": CLASSES[pred_idx],
         "confidence": float(probs[pred_idx]) * 100,
-        "healthy_prob": float(probs[0]),
-        "stressed_prob": float(probs[1]),
     }
+    # Per-class probabilities
+    for i, cls in enumerate(CLASSES):
+        result[f"{cls}_prob"] = float(probs[i])
+    # Backward compat
+    result["healthy_prob"] = float(probs[0])
+    result["stressed_prob"] = float(probs[min(1, len(probs)-1)])
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════

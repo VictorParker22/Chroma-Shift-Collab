@@ -8,7 +8,8 @@ Unlike train_dinov2_v2.py (which freezes the backbone and trains only
 a 770-param linear head), this script UNFREEZES the backbone and
 fine-tunes the entire 22M-param model on our field data.
 
-Expected improvement: 94.4% → 97-98% accuracy.
+Supports 2-class (healthy/stressed) or 4-class (healthy_vegetation,
+stressed_vegetation, bare_soil, non_vegetation) training.
 
 Key differences from Jetson training:
   - Full backbone fine-tuning (not just linear probe)
@@ -52,6 +53,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 import numpy as np
+from collections import Counter
 from PIL import Image
 from torchvision import transforms, datasets
 
@@ -60,8 +62,9 @@ SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR / "data"
 RESULTS_DIR = SCRIPT_DIR / "results" / "dino_v2_classify"
 
-CLASSES = ["healthy_vegetation", "stressed_soil"]
-NUM_CLASSES = 2
+CLASSES_2 = ["healthy_vegetation", "stressed_soil"]
+CLASSES_4 = ["healthy_vegetation", "stressed_vegetation", "bare_soil", "non_vegetation"]
+NUM_CLASSES = None  # Set from --num-classes or auto-detected from data
 IMAGE_SIZE = 224  # DINOv2 native resolution (not 168 like linear probe)
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -157,6 +160,11 @@ def train(args):
     train_dataset = datasets.ImageFolder(str(train_dir), transform=get_train_transforms())
     val_dataset = datasets.ImageFolder(str(val_dir), transform=get_val_transforms())
 
+    # Auto-detect number of classes from data
+    num_classes = args.num_classes or len(train_dataset.classes)
+    classes = train_dataset.classes
+    print(f"  Detected {num_classes} classes: {classes}")
+
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True, drop_last=True,
@@ -166,15 +174,24 @@ def train(args):
         num_workers=args.workers, pin_memory=True,
     )
 
+    # Compute class weights for imbalanced data
+    class_counts = Counter(train_dataset.targets)
+    total = len(train_dataset)
+    class_weights = torch.tensor(
+        [total / (num_classes * class_counts.get(i, 1)) for i in range(num_classes)],
+        dtype=torch.float32
+    ).to(device)
+    print(f"  Class weights: {', '.join(f'{w:.2f}' for w in class_weights)}")
+
     print(f"  Train: {len(train_dataset):,} images ({len(train_loader)} batches)")
     print(f"  Val:   {len(val_dataset):,} images")
-    print(f"  Classes: {train_dataset.classes}")
+    print(f"  Classes: {classes}")
 
     # Model
     print(f"\n  Loading {args.backbone} backbone …")
     model = DINOv2Classifier(
         backbone_name=args.backbone,
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
         dropout=args.dropout,
     ).to(device)
 
@@ -206,7 +223,7 @@ def train(args):
 
     # Mixed precision
     scaler = GradScaler(enabled=args.fp16)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
 
     # Gradient accumulation
     accum_steps = max(1, args.effective_batch // args.batch_size)
@@ -334,7 +351,7 @@ def save_checkpoint(model, epoch, val_acc, path):
         "epoch": epoch,
         "model_state_dict": state_dict,
         "val_acc": val_acc,
-        "classes": CLASSES,
+        "classes": classes if 'classes' in dir() else (CLASSES_4 if num_classes == 4 else CLASSES_2),
         "backbone": model.backbone_name,
         "embed_dim": model.embed_dim,
         "training": "full_finetune",
@@ -347,15 +364,18 @@ def save_confusion_matrix(predictions, labels, results_dir):
     predictions = np.array(predictions)
     labels = np.array(labels)
 
-    cm = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=int)
+    n = len(set(labels))
+    cm = np.zeros((n, n), dtype=int)
     for true, pred in zip(labels, predictions):
         cm[int(true)][int(pred)] += 1
 
     metrics = {}
-    for i, cls in enumerate(CLASSES):
+    cls_names = CLASSES_4 if n == 4 else CLASSES_2
+    for i in range(n):
+        cls = cls_names[i] if i < len(cls_names) else f"class_{i}"
         tp = cm[i][i]
-        fp = sum(cm[j][i] for j in range(NUM_CLASSES)) - tp
-        fn = sum(cm[i][j] for j in range(NUM_CLASSES)) - tp
+        fp = sum(cm[j][i] for j in range(n)) - tp
+        fn = sum(cm[i][j] for j in range(n)) - tp
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
@@ -366,7 +386,7 @@ def save_confusion_matrix(predictions, labels, results_dir):
     report = {
         "accuracy": round(float(accuracy), 4),
         "confusion_matrix": cm.tolist(),
-        "classes": CLASSES,
+        "classes": cls_names[:n],
         "per_class": metrics,
         "total_samples": int(cm.sum()),
         "training_type": "full_finetune",
@@ -385,6 +405,8 @@ def main():
     parser.add_argument("--backbone", default="dinov2_vits14",
                        choices=["dinov2_vits14", "dinov2_vitb14"],
                        help="DINOv2 backbone (vits14=22M, vitb14=86M)")
+    parser.add_argument("--num-classes", type=int, default=None,
+                       help="Number of classes (auto-detected from data if not set)")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=32,
                        help="Per-GPU batch size (32 fits in 12GB)")

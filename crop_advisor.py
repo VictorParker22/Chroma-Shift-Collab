@@ -301,10 +301,51 @@ def generate_advisory(ndvi, seasonal_data, classification=None, weather=None,
                 f"The onboard AI classifier (DINOv2, 99.95% validated accuracy) "
                 f"confirms healthy vegetation with {conf:.1f}% confidence."
             )
+        elif cls == "stressed_vegetation":
+            ai_assessment = (
+                f"The onboard AI classifier (DINOv2) detects stressed vegetation "
+                f"with {conf:.1f}% confidence. Plants are present but showing "
+                f"signs of stress (yellowing, wilting, or reduced vigor)."
+            )
+        elif cls == "bare_soil":
+            ai_assessment = (
+                f"The onboard AI classifier (DINOv2) identifies this area as "
+                f"bare soil with {conf:.1f}% confidence. No visible vegetation "
+                f"detected — this may be exposed ground, tilled earth, or dormant "
+                f"cover awaiting planting."
+            )
+            # Override health label for bare soil
+            health_label = "🟤 Bare Soil Detected"
+            health_summary = (
+                f"No active vegetation detected. NDVI of {ndvi:.3f} with bare soil "
+                f"classification indicates exposed ground. "
+                f"Any NDVI signal may be from soil organic matter or microbial activity."
+            )
+            if not primary_recommendation:
+                primary_recommendation = (
+                    "Consider whether this area should have vegetation. If so, "
+                    "check for erosion risk and consider cover crop planting."
+                )
+        elif cls == "non_vegetation":
+            ai_assessment = (
+                f"The onboard AI classifier (DINOv2) identifies this as a "
+                f"non-vegetation surface with {conf:.1f}% confidence "
+                f"(concrete, asphalt, rock, or water)."
+            )
+            health_label = "⬛ Non-Vegetation Surface"
+            health_summary = (
+                f"This area is not vegetation — classified as built surface or water. "
+                f"NDVI readings from non-vegetation surfaces are not meaningful for "
+                f"crop health assessment."
+            )
+            primary_recommendation = (
+                "This surface does not contain vegetation. Reposition sensor "
+                "to scan a vegetated area for agricultural monitoring."
+            )
         else:
             ai_assessment = (
-                f"The onboard AI classifier (DINOv2, 99.95% validated accuracy) "
-                f"detects stressed vegetation with {conf:.1f}% confidence."
+                f"The onboard AI classifier (DINOv2) classifies this as "
+                f"'{cls}' with {conf:.1f}% confidence."
             )
 
     # Quality/confidence assessment

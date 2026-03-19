@@ -1,0 +1,33 @@
+# Chroma-Shift Full Pipeline Image
+# Base: dustynv/pytorch with CUDA 12.8 + TensorRT on JetPack 6
+# Adds: OpenCV, supabase, and all pipeline dependencies
+#
+# Build:  docker build --network=host -f Dockerfile.pipeline -t chroma-shift:pipeline .
+# Run:    docker run --rm --runtime nvidia \
+#           --device /dev/video0 --device /dev/bus/usb \
+#           -v $(pwd):/workspace -w /workspace \
+#           --env-file .env --network host \
+#           chroma-shift:pipeline python3 jetson_main.py --zone B3 --once
+
+FROM dustynv/pytorch:2.7-r36.4.0-cu128-24.04
+
+# Install system OpenCV (ARM64 native, avoids pip wheel issues)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-opencv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies — force standard PyPI via CLI flags
+# (base image has a stale jetson-ai-lab pip index that DNS can't resolve)
+# Pin numpy<2 to match the pre-compiled torch/cv2 in the base image
+RUN pip install --no-cache-dir \
+    --index-url https://pypi.org/simple/ \
+    --extra-index-url https://pypi.ngc.nvidia.com \
+    "numpy<2" \
+    supabase \
+    requests \
+    pillow \
+    httpx \
+    python-dotenv
+
+WORKDIR /workspace
+CMD ["python3", "jetson_main.py", "--once"]
