@@ -29,8 +29,8 @@ RESULTS_DIR = os.path.join(SCRIPT_DIR, "results", "dino_v2_classify")
 ONNX_MODEL = os.path.join(RESULTS_DIR, "chroma_shift_classifier.onnx")
 TRT_ENGINE = os.path.join(RESULTS_DIR, "chroma_shift_fp16.engine")
 
-CLASSES = ["healthy_vegetation", "stressed_soil"]
-IMAGE_SIZE = 168
+CLASSES = ["bare_soil", "healthy_vegetation", "non_vegetation", "stressed_vegetation"]
+IMAGE_SIZE = 224
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -256,12 +256,17 @@ class TRTClassifier:
         probs = self.predict(arr)
         pred_idx = int(np.argmax(probs))
 
-        return {
+        result = {
             "class": CLASSES[pred_idx],
             "confidence": float(probs[pred_idx]) * 100,
-            "healthy_prob": float(probs[0]),
-            "stressed_prob": float(probs[1]),
         }
+        # Per-class probabilities
+        for i, cls in enumerate(CLASSES):
+            result[f"{cls}_prob"] = float(probs[i])
+        # Backward compat
+        result["healthy_prob"] = float(probs[0])
+        result["stressed_prob"] = float(probs[min(1, len(probs)-1)])
+        return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
