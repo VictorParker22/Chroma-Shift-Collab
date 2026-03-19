@@ -308,19 +308,19 @@ def train(args):
         # Save best
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            save_checkpoint(model, epoch, val_acc, RESULTS_DIR / "best_model.pth")
+            save_checkpoint(model, epoch, val_acc, RESULTS_DIR / "best_model.pth", classes=classes)
             print(f"         ★ New best: {val_acc:.2f}%")
 
             # Also save confusion matrix for best model
-            save_confusion_matrix(all_preds, all_labels, RESULTS_DIR)
+            save_confusion_matrix(all_preds, all_labels, RESULTS_DIR, classes=classes)
 
         # Periodic checkpoints
         if epoch % 10 == 0:
             save_checkpoint(model, epoch, val_acc,
-                          RESULTS_DIR / f"finetune_epoch{epoch:03d}.pth")
+                          RESULTS_DIR / f"finetune_epoch{epoch:03d}.pth", classes=classes)
 
     # Final save
-    save_checkpoint(model, args.epochs, val_acc, RESULTS_DIR / "final_model.pth")
+    save_checkpoint(model, args.epochs, val_acc, RESULTS_DIR / "final_model.pth", classes=classes)
 
     with open(RESULTS_DIR / "training_log.json", "w") as f:
         json.dump(history, f, indent=2)
@@ -339,7 +339,7 @@ def train(args):
     return best_val_acc
 
 
-def save_checkpoint(model, epoch, val_acc, path):
+def save_checkpoint(model, epoch, val_acc, path, classes=None):
     """Save in the same format as train_dinov2_v2.py for compatibility."""
     state_dict = {}
     for k, v in model.backbone.state_dict().items():
@@ -351,7 +351,7 @@ def save_checkpoint(model, epoch, val_acc, path):
         "epoch": epoch,
         "model_state_dict": state_dict,
         "val_acc": val_acc,
-        "classes": classes if 'classes' in dir() else (CLASSES_4 if num_classes == 4 else CLASSES_2),
+        "classes": classes or CLASSES_2,
         "backbone": model.backbone_name,
         "embed_dim": model.embed_dim,
         "training": "full_finetune",
@@ -359,7 +359,7 @@ def save_checkpoint(model, epoch, val_acc, path):
     }, path)
 
 
-def save_confusion_matrix(predictions, labels, results_dir):
+def save_confusion_matrix(predictions, labels, results_dir, classes=None):
     """Save confusion matrix for best model."""
     predictions = np.array(predictions)
     labels = np.array(labels)
@@ -370,7 +370,7 @@ def save_confusion_matrix(predictions, labels, results_dir):
         cm[int(true)][int(pred)] += 1
 
     metrics = {}
-    cls_names = CLASSES_4 if n == 4 else CLASSES_2
+    cls_names = classes or (CLASSES_4 if n == 4 else CLASSES_2)
     for i in range(n):
         cls = cls_names[i] if i < len(cls_names) else f"class_{i}"
         tp = cm[i][i]

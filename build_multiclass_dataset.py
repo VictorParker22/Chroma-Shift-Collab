@@ -226,16 +226,26 @@ def build_dataset(classified, non_veg_images, target_per_class=TARGET_PER_CLASS)
         val_images = images[:val_count]
         train_images = images[val_count:]
         
-        # Copy to output
+        # Copy to output (Windows long-path safe)
+        def safe_copy(src, dst):
+            """Copy with Windows \\\\?\\ prefix for paths > 260 chars."""
+            s, d = str(src.resolve()), str(dst.resolve())
+            if os.name == 'nt':
+                if not s.startswith('\\\\?\\'):
+                    s = '\\\\?\\' + s
+                if not d.startswith('\\\\?\\'):
+                    d = '\\\\?\\' + d
+            shutil.copy2(s, d)
+
         for img in train_images:
             dst = NEW_DATA_DIR / "train" / cls / img.name
             if not dst.exists():
-                shutil.copy2(img, dst)
+                safe_copy(img, dst)
         
         for img in val_images:
             dst = NEW_DATA_DIR / "val" / cls / img.name
             if not dst.exists():
-                shutil.copy2(img, dst)
+                safe_copy(img, dst)
         
         print(f"  {cls}: {len(train_images)} train + {len(val_images)} val = {len(images)}")
         total_train += len(train_images)
