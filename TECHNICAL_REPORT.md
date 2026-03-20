@@ -10,9 +10,9 @@
 
 Urban green spaces face a growing gap between the ecological services they provide and the tools available to monitor their health at a granular level. Traditional approaches to vegetation monitoring—satellite revisit schedules, manual field surveys, or periodic aerial flyovers—each carry tradeoffs in spatial resolution, temporal frequency, or cost. This project began with a practical question: could a single embedded device, positioned on the ground, continuously assess the condition of vegetation in a park using the same spectral principles that drive large-scale remote sensing?
 
-Chroma-Shift is the system that emerged from that question. It runs on an NVIDIA Jetson Orin Nano mounted alongside a multispectral camera and motorized filter wheel. Every ten minutes, it captures a pair of narrowband images—one in the visible red and one in the near-infrared—computes a vegetation index from the reflectance difference, runs the frame through a neural network trained to distinguish healthy canopy from stressed or bare ground, pulls the latest weather data for the site, and pushes everything to a cloud database. The goal is not to replace satellite monitoring but to sit between satellite passes and ground-truth inspections, filling the temporal gaps with continuous, automated readings.
+Chroma-Shift is the system that emerged from that question. It runs on an NVIDIA Jetson Orin Nano mounted alongside a multispectral camera and motorized filter wheel. Every scan cycle (adaptively timed from 2 to 30 minutes), it captures a pair of narrowband images—one in the visible red and one in the near-infrared—applies a 7-layer self-calibrating radiometric correction, computes NDVI, classifies the scene into one of four categories (healthy vegetation, stressed vegetation, bare soil, non-vegetation) using a DINOv2 neural network at 149 frames per second via TensorRT, cross-checks the AI classification against NDVI physics using confidence thresholds, consults a cloud-hosted 90-billion-parameter Vision-Language Model for scene analysis, generates a farmer-facing advisory, and pushes everything to a cloud database. An eight-signal adaptive scheduler dynamically adjusts observation frequency per zone, and a fault tolerance system ensures the pipeline never fully stops—degrading gracefully through four operating modes if hardware or software failures occur. The goal is not to replace satellite monitoring but to sit between satellite passes and ground-truth inspections, filling the temporal gaps with continuous, automated readings.
 
-This document walks through the full system, from the physics of plant reflectance and the hardware choices that exploit it, through the signal processing and machine learning pipeline, to the weather correlation logic and cloud data architecture that tie measurements to environmental context.
+This document walks through the full system, from the physics of plant reflectance and the hardware choices that exploit it, through the signal processing and machine learning pipeline, to the confidence threshold cross-checking, adaptive sensing, fault tolerance, weather correlation logic, and cloud data architecture that tie measurements to environmental context.
 
 ---
 
@@ -156,35 +156,35 @@ When an alert is triggered, the system generates a recommendation tailored to th
 
 ### 5.1 DINOv2 Image Classification
 
-NDVI alone cannot distinguish between all causes of low reflectance. A muddy path and a drought-stressed lawn may show similar NDVI values, but they require entirely different management responses. To address this, an image classifier was added downstream of the NDVI computation, applied to the Red-band frame (which, as an RGB-approximation, preserves the spatial texture information that NDVI collapses into a single number).
+NDVI alone cannot distinguish between all causes of low reflectance. A muddy path and a drought-stressed lawn may show similar NDVI values, but they require entirely different management responses. To address this, a four-class image classifier was added downstream of the NDVI computation, applied to the Red-band frame (which, as an RGB-approximation, preserves the spatial texture information that NDVI collapses into a single number).
 
 The classifier is built on DINOv2, a self-supervised vision foundation model developed by Meta AI. DINOv2 was trained on 142 million curated images using a combination of image-level and patch-level self-distillation objectives, producing feature representations that transfer well to downstream tasks without task-specific fine-tuning. The model family includes several size variants; this system uses the ViT-Small/14 configuration, which processes 14×14 pixel patches through 12 transformer encoder blocks with 6 attention heads each, producing a 384-dimensional [CLS] token embedding for each input image. The full backbone contains approximately 22 million parameters.
 
-In this deployment, the backbone weights are frozen entirely. Only a single linear layer maps the 384-dimensional embedding to 2 output classes (healthy vegetation vs. stressed/bare ground), yielding 770 trainable parameters—384 weights per class plus 2 biases. This extreme parameter economy reflects the quality of the foundation model's features: a linear probe on DINOv2 embeddings routinely matches or exceeds models that fine-tune millions of parameters on similar classification tasks.
+The current deployment uses a **fully fine-tuned** backbone with a 4-class linear head mapping the 384-dimensional embedding to: `healthy_vegetation`, `stressed_vegetation`, `bare_soil`, and `non_vegetation`. Unlike the earlier linear-probe approach (which froze the backbone), full fine-tuning allows the transformer attention heads to specialize for the multispectral domain, improving separation between visually similar classes (e.g., stressed vegetation vs. bare soil) at the cost of requiring a desktop GPU for training.
 
 #### Training Procedure
 
-The 8 GB memory constraint on the Jetson makes conventional GPU-based fine-tuning of even a small ViT impractical. Loading the backbone, intermediate activations, and optimizer state simultaneously exceeds the unified memory budget. The solution was to split training into two phases:
+Two training approaches were developed to accommodate different hardware availability:
 
-**Phase 1 — Feature Extraction (CPU, one-time):** The frozen DINOv2 backbone is loaded on the CPU. Each training image is resized to 168×168, normalized to ImageNet statistics, and passed through the backbone. The resulting 384-dimensional [CLS] embedding is stored as a NumPy array on disk. The entire training set is processed in this way, producing a compact feature cache (a few megabytes for thousands of images) that can be loaded entirely into memory for the second phase. This step runs at roughly one image per second on the Jetson's A78AE cores, taking about 50 minutes for 3,000 images.
+**Approach A — Two-Phase On-Device Training (Jetson, 8 GB safe):** The 8 GB memory constraint on the Jetson makes conventional GPU-based fine-tuning impractical. The solution splits training into two phases: (1) Feature Extraction on CPU — the frozen DINOv2 backbone processes each training image (resized to 224×224) and caches the 384-dimensional CLS embedding to disk; (2) Linear Head Training on GPU — a linear classifier (384 → 4) is trained on the cached features using SGD with cosine-annealing LR. This approach produces 93%+ accuracy with under 50 MB GPU memory.
 
-**Phase 2 — Linear Head Training (GPU, fast):** The cached feature vectors are loaded into GPU memory as a single batch. A linear classifier (384 → 2) is trained using SGD with momentum (0.9) and a cosine-annealing learning rate schedule starting at 0.001. Training runs for 30 epochs. Because the feature cache fits entirely in memory and the classifier has only 770 parameters, each epoch completes in roughly 0.2 seconds. The entire training phase finishes in under 10 seconds.
-
-This two-phase approach reduces the GPU memory requirement from several gigabytes (full model) to under 50 MB (feature vectors + tiny linear layer), making it practical on 8 GB hardware.
+**Approach B — Full Fine-Tuning (Desktop GPU, recommended):** On an RTX 4070 with 12 GB VRAM, the entire DINOv2 backbone is unfrozen and fine-tuned alongside the classification head. Training uses AdamW optimizer with class-weighted cross-entropy loss to handle class imbalance, FP16 mixed precision for memory efficiency, and a cosine-annealing LR schedule starting at 1e-5 for the backbone and 1e-3 for the head. The trained model is exported to ONNX and converted to a TensorRT FP16 engine for deployment on the Jetson. This approach achieves 93.94% validation accuracy with significantly better class separation on challenging scenes.
 
 #### Training Data
 
-The training dataset draws from two sources with different strengths:
+The training dataset for the 4-class model draws from three sources:
 
-**Field captures** (366 image pairs from Central Park, March 2026). These are the highest-value training examples because they come from the same camera, filter set, and environment as the deployment target. They include close-up and medium-distance shots of grass, bushes, canopies, dirt paths, stone monuments, dead vegetation, and mixed scenes under varying light across multiple sessions. Each capture was automatically labeled using the NDVI seasonal threshold. The 366 pairs provide about 3,831 usable images across both classes.
+**Field captures** (~400 image pairs from Central Park, March 2026). These are the highest-value training examples because they come from the same camera, filter set, and environment as the deployment target. They include close-up and medium-distance shots of grass, bushes, canopies, dirt paths, stone monuments, dead vegetation, and mixed scenes under varying light across multiple sessions. Each capture was automatically labeled using NDVI thresholds into four classes: bare soil (NDVI < 0.15), stressed vegetation (0.15–0.35), healthy vegetation (> 0.35), with non-vegetation scenes identified by surface type.
 
-**PlantVillage** (a subset of the 54,306-image open dataset of plant leaf photographs). PlantVillage images are close-up, laboratory-style photographs of individual leaves under controlled conditions, covering 38 crop species and associated diseases. While the domain is very different from landscape-scale field captures, these images add diversity in leaf-level texture. Only 500 images per class are sampled from this dataset to prevent it from dominating the training distribution.
+**EuroSAT** (a 27,000-image satellite classification dataset). EuroSAT provides overhead imagery labeled into 10 land-use classes, four of which map directly to the Chroma-Shift taxonomy: `AnnualCrop` and `PermanentCrop` → healthy vegetation, `Forest` → healthy vegetation, `Pasture` → stressed vegetation (brown/dry pasture), `Industrial` and `Residential` → non-vegetation, `River` and `SeaLake` → non-vegetation. These satellite-perspective images add domain diversity for the orbital use case.
 
-The field captures are augmented 5× through random combinations of horizontal and vertical flips, rotations (±25°), brightness adjustment (0.65–1.35×), contrast adjustment (0.75–1.25×), and saturation jitter (0.6–1.4×). Combined with capped PlantVillage/PlantDoc samples, the final training set contains 12,366 images (10,510 train + 1,856 validation), balanced across both classes.
+**PlantVillage** (a subset of the 54,306-image open dataset of plant leaf photographs). PlantVillage images add leaf-level texture diversity. Images are split by disease state: healthy leaves → healthy vegetation, diseased leaves → stressed vegetation.
+
+The field captures are augmented through random combinations of horizontal and vertical flips, rotations (±25°), brightness adjustment (0.65–1.35×), contrast adjustment (0.75–1.25×), and saturation jitter (0.6–1.4×). The final 4-class training set contains approximately 12,000 images (~9,000 train + ~1,800 validation), balanced across all four classes using class-weighted sampling.
 
 #### Performance and TensorRT Deployment
 
-The classifier reaches **99.95% validation accuracy** after 30 epochs of full fine-tuning on an RTX 4070 GPU, with the best checkpoint at epoch 19. The trained model is exported to ONNX format and converted to a TensorRT FP16 engine for GPU inference on the Jetson. The TensorRT engine achieves **6.1 ms mean inference latency** (6.3 ms minimum, 12.5 ms maximum) — a 115× speedup over CPU-based PyTorch inference (~1000 ms). The 44.3 MB engine file is stored alongside the ONNX model and loaded automatically at startup.
+The 4-class classifier reaches **93.94% validation accuracy** after 30 epochs of full fine-tuning on an RTX 4070 GPU, with the best checkpoint selected by validation loss. The trained model is exported to ONNX format (224×224 input) and converted to a TensorRT FP16 engine for GPU inference on the Jetson. The TensorRT engine achieves **6.7 ms mean inference latency (149 FPS)** — a 150× speedup over CPU-based PyTorch inference (~1000 ms). The 45.3 MB engine file is stored alongside the ONNX model and loaded automatically at startup. Per-class probabilities are returned alongside the top prediction, enabling the confidence threshold system described in Section 5.3.
 
 ### 5.2 Cloud Vision-Language Scene Analyzer
 
@@ -220,6 +220,18 @@ In testing with synthetic multispectral scenes, the cloud VLM correctly identifi
 These outputs feed directly into the radiometric correction pipeline as `vila_overrides`, allowing the VLM to dynamically disable unnecessary corrections (e.g., skip DOS under clear conditions) or adjust parameters (e.g., increase cloud transmittance if the scene appears brighter than the NWS report suggests).
 
 This architecture represents a key design principle: **physics-based corrections provide the rigorous foundation, while AI provides the intelligent orchestration**. The VLM does not replace the radiometric math; it decides *which math to apply* based on scene understanding. And by distributing the workload — DINOv2 classification on-device, VLM reasoning in the cloud — the system maximizes the utilization of both edge and cloud compute.
+
+### 5.3 Confidence Threshold Cross-Checking
+
+The DINOv2 classifier and the NDVI physics measurement provide two independent assessments of scene content. When they agree, confidence is high. When they disagree, the system flags the conflict and triggers additional verification. The confidence threshold system (`crop_advisor.py`) implements three checks:
+
+**Low AI Confidence (<80%).** When the top-class probability falls below 80%, the classification is marked as potentially unreliable. The advisory output includes a warning and recommends either a VILA VLM second opinion or a re-scan of the zone. In the adaptive scheduler, low-confidence zones are scanned more frequently to gather additional evidence.
+
+**NDVI-Classification Conflict.** If DINOv2 classifies a scene as `healthy_vegetation` but the NDVI reading is critically low (below 0.2), or if DINOv2 classifies as `bare_soil` but NDVI is high (above 0.5), the system flags a CONFLICT warning. This catches cases where the classifier may be confused by unusual surface textures (e.g., wet concrete registering as vegetation in the RGB domain) or where the NDVI computation is corrupted by a sensor anomaly.
+
+**Ambiguous Classification.** When the top two class probabilities are within 15 percentage points of each other, the classification is flagged as AMBIGUOUS. This typically occurs at transition boundaries (e.g., sparse vegetation that could be classified as either stressed vegetation or bare soil) and indicates that the scene may require human review or higher-resolution imaging.
+
+These confidence flags are included in the advisory output, the triage log, and the Supabase push, giving both automated systems and human reviewers visibility into classification uncertainty.
 
 ---
 
@@ -269,49 +281,76 @@ Each ten-minute scan cycle generates between five and twelve database writes dep
 
 ---
 
-## 8. System Integration
+## 8. Adaptive Sensing
 
-The complete pipeline is orchestrated by a single Python script (`jetson_main.py`) running on the Jetson:
+Traditional satellite monitoring uses fixed revisit schedules regardless of ground conditions. Chroma-Shift implements an eight-signal adaptive scheduling algorithm (`adaptive_sensing.py`) that dynamically adjusts observation frequency per zone based on real-time conditions:
 
-1. **Initialization:** Load environment variables (including `NVIDIA_NIM_API_KEY` for cloud VLM), connect to Supabase, initialize the filter wheel via ctypes, open the camera via OpenCV, load the DINOv2 TensorRT engine (with graceful fallback to PyTorch CPU then NDVI-only mode), initialize the scene analyzer (auto-selecting cloud VLM or heuristic fallback based on API key availability), and set up per-zone Kalman filters.
+| Signal | Weight | Effect |
+|--------|--------|--------|
+| NDVI stress | 0.30 | Stressed zones scanned more frequently |
+| Scene change | 0.15 | Rapid NDVI changes trigger shorter intervals |
+| Weather urgency | 0.15 | Frost/heat events increase scan frequency |
+| VLM confidence | 0.10 | Low VLM confidence → more frequent scans |
+| Solar elevation | 0.10 | Nighttime → extended intervals (sleep mode) |
+| Power state | 0.10 | Low battery → longer intervals |
+| Zone history | 0.05 | Zones with recent stress get priority |
+| DINOv2 classification | 0.05 | Stressed vegetation → 2.5× frequency; bare soil → deprioritized |
 
-2. **Main loop (repeats every N seconds):**
-   - Fetch current weather from NWS
-   - For each configured field zone:
-     - Rotate filter wheel to Red → capture with metadata → rotate to NIR → capture with metadata
-     - Compute solar position from timestamp + GPS
-     - Run scene analysis (cloud VLM or heuristic) on the Red+NIR pair with weather context
-     - Apply 7-layer radiometric correction with VLM-generated overrides
-     - Compute corrected NDVI and smooth through Kalman filter
-     - Compare against seasonal phenology baseline
-     - Run Red frame through DINOv2 TensorRT classifier (on-device, 6.1 ms)
-     - Push NDVI reading, VLM explanation, quality flags, alerts, and zone status to Supabase
-   - Push weather observation with correlated NDVI
-   - Push system heartbeat
-
-3. **Graceful shutdown:** Signal handlers catch SIGINT and SIGTERM, closing the camera handle, resetting the filter wheel to the clear position, and allowing in-flight database writes to complete before exit.
-
-The system demonstrates an edge-to-cloud AI architecture: **DINOv2 classification runs locally on the Jetson's GPU** (6.1 ms latency, zero network dependency), while **VLM scene reasoning runs on NVIDIA NIM cloud GPUs** (~5.6 s, using a 90B-parameter model that would be impossible to run on 8 GB of RAM). If internet connectivity is lost, the heuristic fallback activates automatically with no interruption to the monitoring cycle.
-
-The loop interval is configurable from the command line (default: 600 seconds), and individual zones can be targeted for debugging without modifying the codebase.
+The scheduler produces three outputs: an interval in seconds (clamped to 120–1800s), a priority score (0–1), and a power mode recommendation (`active` at 10W, `normal` at 7W, or `sleep` at 3.5W). This reduces downlink bandwidth by 99.7% compared to raw image transmission — sending 1.3 KB of processed telemetry instead of 500 KB images.
 
 ---
 
-## 9. Farmer Advisory System
+## 9. System Integration
 
-Beyond classification, the system generates **context-aware advisories** that explain *why* vegetation is healthy or stressed and *what to do about it*. The `crop_advisor.py` module fuses five data streams:
+The complete pipeline is orchestrated by a single Python script (`jetson_main.py`) running on the Jetson:
+
+1. **Boot Sequence:** Run 8-component self-test (GPU, TRT engine, disk, Supabase, weather API, radiometric pipeline, captures directory, Python imports). If any component fails, the system starts in a degraded mode rather than crashing. Load environment variables, connect to Supabase, initialize the filter wheel via ctypes, open the camera via OpenCV, load the 4-class DINOv2 TensorRT engine (with graceful fallback to PyTorch CPU then NDVI-only mode), initialize the VILA scene analyzer, set up per-zone Kalman filters, arm the watchdog timer (120s timeout), and initialize the adaptive scheduler.
+
+2. **Main loop (adaptive interval, 2–30 minutes):**
+   - Check remote config for ground control overrides
+   - Fetch current weather from NWS
+   - Rank zones by adaptive priority
+   - For each configured field zone:
+     - Rotate filter wheel to Red → capture with metadata → rotate to NIR → capture with metadata
+     - Check frames for anomalies (black, saturated, low contrast)
+     - Compute solar position from timestamp + GPS
+     - Run scene analysis (cloud VLM or heuristic) on the Red+NIR pair with weather context
+     - Apply 7-layer radiometric correction with VLM-generated overrides
+     - Compute corrected NDVI, check for anomalies, smooth through Kalman filter
+     - Compare against seasonal phenology baseline
+     - Run Red frame through 4-class DINOv2 TensorRT classifier (on-device, 6.7 ms / 149 FPS)
+     - Run confidence threshold cross-checks (AI vs NDVI physics)
+     - Generate crop advisory with confidence flags
+     - Compute adaptive scheduling decision (8-signal fusion)
+     - Push NDVI reading, classification, confidence flags, alerts, advisory, and zone status to Supabase
+     - Record success / kick watchdog
+   - Push weather observation with correlated NDVI
+   - Push system heartbeat with operating mode and sensor health score
+
+3. **Fault-tolerant shutdown:** Signal handlers catch SIGINT and SIGTERM, closing the camera handle, resetting the filter wheel, pushing a final heartbeat (mode=idle), and allowing in-flight database writes to complete before exit. If the main loop hangs, the watchdog auto-restarts the process.
+
+The system demonstrates an edge-to-cloud AI architecture: **DINOv2 4-class classification runs locally on the Jetson's GPU** (6.7 ms latency, 149 FPS, zero network dependency), while **VLM scene reasoning runs on NVIDIA NIM cloud GPUs** (~5.6 s, using a 90B-parameter model that would be impossible to run on 8 GB of RAM). If internet connectivity is lost, the heuristic fallback activates automatically with no interruption to the monitoring cycle. The full end-to-end pipeline completes in under 4 seconds per zone.
+
+The loop interval is determined by the adaptive scheduler (default base: 600 seconds, range: 120–1800 seconds), and individual zones can be targeted for debugging without modifying the codebase.
+
+---
+
+## 10. Farmer Advisory System
+
+Beyond classification, the system generates **context-aware advisories** that explain *why* vegetation is healthy or stressed and *what to do about it*. The `crop_advisor.py` module fuses six data streams:
 
 1. **NDVI measurement** — interpreted against 7 vegetation categories (bare soil through very dense canopy)
 2. **Seasonal baseline** — 5-year NASA HLS average for the current week, with season-specific context
 3. **Weather data** — NWS temperature, humidity, precipitation, and wind used to diagnose specific stress causes (water stress, heat stress, frost damage, waterlogging, wind damage)
-4. **AI classification** — DINOv2 prediction with confidence score
-5. **Historical trend** — declining, stable, or improving NDVI trajectory
+4. **AI classification** — 4-class DINOv2 prediction with per-class probabilities
+5. **Confidence flags** — Cross-check results from the confidence threshold system (low confidence, NDVI conflicts, ambiguous classification)
+6. **Historical trend** — declining, stable, or improving NDVI trajectory
 
-Each advisory includes a health label, plain-English explanation, possible causes with confidence scores, and a specific actionable recommendation. This transforms the system from a binary classifier into a **decision support tool** for farmers.
+Each advisory includes a health label, plain-English explanation, possible causes with confidence scores, confidence flags, and a specific actionable recommendation. This transforms the system from a classifier into a **decision support tool** for farmers.
 
 ---
 
-## 10. Autonomous Triage Logging
+## 11. Autonomous Triage Logging
 
 To demonstrate autonomous operation without a human in the loop, the system records every decision in a structured triage log (`triage_log.py`). Each entry captures the complete 8-step reasoning chain:
 
@@ -319,29 +358,95 @@ To demonstrate autonomous operation without a human in the loop, the system reco
 2. **CORRECT** — All 7 radiometric correction layers applied with parameters
 3. **MEASURE** — Computed NDVI value with physical validity check
 4. **COMPARE** — Deviation from NASA seasonal baseline
-5. **CLASSIFY** — DINOv2 prediction and confidence
+5. **CLASSIFY** — 4-class DINOv2 prediction, per-class probabilities, and confidence flags
 6. **DIAGNOSE** — Weather-fused stress analysis with possible causes
 7. **ADVISE** — Farmer-facing recommendation generated autonomously
-8. **SCHEDULE** — Adaptive sensing interval decision and reasoning
+8. **SCHEDULE** — Adaptive sensing interval decision (8-signal) and reasoning
 
 Each entry also includes a human-readable reasoning chain that summarizes the full decision in natural language, enabling NASA reviewers to trace exactly how the AI arrived at each conclusion. The log is append-only, JSON-lines format, and explicitly records `"human_intervention": false` on every entry.
 
 ---
 
-## 11. Limitations and Next Steps
+## 12. Fault Tolerance
 
-The system's principal limitation in its current form is the size of its training dataset. With 171 original field captures, even aggressive augmentation cannot fully capture the visual diversity of an urban park across seasons, weather conditions, and times of day. Model accuracy on mixed-texture scenes (partially shaded paths, sparse ground cover, seasonal transitions) remains below the threshold needed for fully autonomous operation. Each new field visit roughly doubles the useful training data, and the two-phase training pipeline reduces the retraining cycle to under an hour on-device.
+A system operating autonomously in orbit—or in a remote agricultural deployment—cannot rely on human intervention when failures occur. The fault tolerance module (`fault_tolerance.py`) ensures the pipeline never fully stops, implementing five subsystems:
 
-The 8 GB RAM constraint of the Jetson Orin Nano proved to be the binding hardware limitation. While the DINOv2 classifier and 7-layer correction pipeline run comfortably on-device, the VILA 3B VLM cannot be compiled locally — the MLC quantization step alone requires more than 10 GB of RAM. The cloud VLM architecture resolves this cleanly, but introduces a dependency on internet connectivity and NVIDIA NIM API availability. The heuristic fallback mitigates this risk for field deployments.
+### 12.1 Watchdog Timer
+
+A software watchdog runs on a daemon thread and monitors the main scan loop. If the loop fails to call `kick()` within 120 seconds, the watchdog triggers automatic process recovery. This handles GPU hangs, USB device lockups, TensorRT deadlocks, and any other condition that causes the main thread to stall indefinitely.
+
+### 12.2 Graceful Mode Degradation
+
+The FaultManager tracks consecutive errors and transitions the system through four operating modes:
+
+| Mode | Trigger | Active Systems | Power Draw |
+|------|---------|---------------|------------|
+| **Full** | Boot (all tests pass) | TRT + VILA + Adaptive + Weather | 10W |
+| **Reduced** | 3 consecutive errors | TRT + Adaptive (skip VLM) | 7W |
+| **Safe** | 5 consecutive errors | NDVI-only (no AI, no cloud) | 3.5W |
+| **Emergency** | 10 consecutive errors | Log-only (minimal power) | 2W |
+
+After 5 minutes of clean operation (no errors), the system automatically upgrades one level: Emergency → Safe → Reduced → Full. This provides self-healing behavior without ground intervention.
+
+### 12.3 System Self-Test
+
+On every boot, an 8-component self-test runs before entering the scan loop:
+
+1. Python imports (cv2, numpy, scipy)
+2. Disk space (warn < 5 GB, fail < 1 GB)
+3. GPU availability (nvidia-smi check)
+4. TensorRT engine file (existence + size)
+5. Radiometric pipeline (synthetic NDVI smoke test)
+6. Supabase connectivity (test query)
+7. Weather API (NWS fetch)
+8. Captures directory (write test)
+
+Failed tests degrade the starting mode rather than blocking the scan loop entirely.
+
+### 12.4 Anomaly Detection
+
+The AnomalyDetector monitors every NDVI reading and captured frame for sensor anomalies:
+
+- **NDVI out of range** (|NDVI| > 1.0) — physically impossible, indicates sensor or computation failure
+- **Stuck sensor** — same NDVI value 10+ consecutive readings, indicates camera freeze or filter wheel stuck
+- **Sensor drift** — mean NDVI shifting > 0.3 over 20 readings, indicates gradual degradation
+- **Black frame** — all-zero pixels, camera dead or lens cap obstruction
+- **Saturated frame** — all pixels near 255, overexposure or sun glint
+- **Low contrast** — standard deviation < 3.0, fog or condensation on lens
+
+Each anomaly generates an alert pushed to Supabase and a health score (0–100) reported in the system heartbeat.
+
+### 12.5 Remote Configuration
+
+Ground control can push parameter overrides to a `remote_config` Supabase table without requiring an OTA firmware update:
+
+- `force_safe_mode` → Immediately enter safe mode
+- `scan_interval` → Override the adaptive scheduler's interval
+- `enable_vila` → Enable or disable VLM calls
+
+The system polls this table once per scan cycle (configurable). This provides a low-bandwidth command uplink mechanism suitable for S-band passes.
+
+### 12.6 Error Telemetry
+
+Every error, mode change, and anomaly is pushed to a `system_errors` Supabase table with component name, error message, traceback, consecutive count, and operating mode. Ground control can monitor system health in real time through the dashboard and diagnose issues remotely by reviewing the error history.
+
+---
+
+## 13. Limitations and Next Steps
+
+The system's principal limitation in its current form is the diversity of its training dataset. With approximately 400 original field captures, the 4-class model achieves 93.94% validation accuracy but occasionally misclassifies ambiguous scenes (e.g., wet soil as vegetation, or dry grass as bare soil). The confidence threshold system mitigates this by flagging uncertain classifications, but additional field data—particularly for the bare_soil and non_vegetation classes—would improve separation. Each new field visit can be incorporated through the full fine-tuning pipeline in under 30 minutes on a desktop GPU.
+
+The 8 GB RAM constraint of the Jetson Orin Nano proved to be the binding hardware limitation. While the DINOv2 classifier and 7-layer correction pipeline run comfortably on-device, the VILA 3B VLM cannot be compiled locally — the MLC quantization step alone requires more than 10 GB of RAM. The cloud VLM architecture resolves this cleanly, but introduces a dependency on internet connectivity and NVIDIA NIM API availability. The heuristic fallback and fault tolerance system mitigate this risk: if the cloud is unreachable, the system degrades to Reduced mode and continues operating with on-device AI only.
 
 The radiometric pipeline's 109-test validation suite uncovered and resolved several non-obvious bugs during development, including NDVI floating-point overflow from chained normalization layers, PIF detection that incorrectly selected vegetation as invariant features in uniform scenes, and a division-by-zero warning in shadow pixel processing. These discoveries underscore the importance of extensive edge-case testing for any algorithmic pipeline operating on real-world sensor data.
 
 Planned improvements include:
 
-- **Multi-class expansion** beyond the binary healthy/stressed split to distinguish between specific stress types (drought, disease, nutrient deficiency) using the Red-Edge and SWIR filter channels that are already installed in the filter wheel but not yet incorporated into the classification pipeline.
+- **Expanded field dataset** — targeting 1,000+ field captures across all four classes, with emphasis on baresoil/non-vegetation diversity and seasonal variation.
+- **Red-Edge and SWIR integration** — the filter wheel already carries Red-Edge (700–740 nm) and SWIR (1570–1650 nm) filters that could provide additional spectral indices (NDRE, SWIR-based moisture) for more specific stress type classification.
 - **On-device VLM via cross-compilation** — compiling the MLC model on a machine with 16 GB+ RAM and transferring the pre-compiled binary to the Jetson, eliminating the cloud dependency while keeping the lightweight 3B model.
-- **VLM prompt optimization** tailored to multispectral NDVI correction, using the accumulating dataset of VLM responses and paired ground-truth NDVI to refine the prompt template.
 - **Weather-NDVI regression model** trained on the accumulating paired database to replace the rule-based stress modifiers with learned relationships once sufficient data has been collected across seasons.
+- **Radiation-tolerant deployment** — porting the pipeline to radiation-hardened ARM/FPGA platforms (Xilinx Kria, Microchip PolarFire) for actual flight missions, with DINOv2 quantized for FPGA inference via Vitis AI.
 
 ---
 
