@@ -16,7 +16,7 @@ The complete pipeline — capture, correction, classification, adaptive scheduli
 
 | Criterion | How Chroma-Shift Addresses It |
 |-----------|------------------------------|
-| **Creativity** | AI-orchestrated correction pipeline where a VLM dynamically decides which physics layers to apply; NDVI-based PIF detection (novel); 4-mode VLM priority chain; confidence-threshold cross-checking between AI classifier and NDVI physics |
+| **Creativity** | AI-orchestrated correction pipeline where a VLM dynamically decides which physics layers to apply; NDVI-based PIF detection (novel); 4-mode VLM priority chain; confidence-threshold cross-checking between AI classifier and NDVI physics; autonomous 4-mode fault tolerance with remote ground-control override |
 | **Technical Feasibility** | Running code validated on 10W hardware with 109 automated tests; 93.94% 4-class accuracy, 6.7 ms on-device inference (149 FPS); 8-signal adaptive scheduling from 2–30 min |
 | **Impact** | >95% reduction in downlink volume (send 1.3 KB telemetry vs. 500 KB raw image); early stress detection days before satellite revisit would catch it |
 | **Business Model** | $8.5B precision agriculture market; satellite ground-truth network; applicable to forestry, reforestation, and disaster monitoring |
@@ -68,6 +68,7 @@ The system integrates the following established algorithms into an onboard proce
 - **Layer 5 — NDVI-Based PIF Detection**: Inter-frame illumination matching using spectral flatness (|NDVI| < 0.15) rather than brightness thresholds to identify pseudo-invariant features. This is critical for sequential-filter multispectral cameras where Red and NIR frames are captured seconds apart.
 - **Adaptive Scheduling Algorithm**: Eight-signal fusion for dynamic observation cadence, including classification-aware zone prioritization.
 - **Confidence Threshold Cross-Checking**: Automated detection of conflicts between DINOv2 classification and NDVI physics readings, flagging ambiguous scenes for VLM second-opinion analysis.
+- **Autonomous Fault Tolerance**: Four-mode graceful degradation (Full → Reduced → Safe → Emergency) with watchdog recovery, anomaly detection (stuck sensors, frame anomalies, sensor drift), and remote configuration via ground-station uplink — enabling fully autonomous operation during orbital passes without ground contact.
 
 ### 2.d SmallSat Technical Requirements
 
@@ -88,6 +89,17 @@ The system integrates the following established algorithms into an onboard proce
 The seven-layer self-calibrating radiometric correction pipeline processes raw multispectral frames through: (1) auto-exposure normalization, (2) dark object subtraction, (3) solar zenith correction, (4) cloud transmittance modeling, (5) inter-frame PIF matching, (6) seasonal phenology baseline comparison, and (7) Kalman temporal filtering. Each layer targets a distinct physical effect, and all layers have been validated with 109 automated edge-case tests.
 
 The pipeline accepts overrides from an AI scene analyzer that can selectively disable or modify layers based on real-time conditions — for example, skipping cloud transmittance correction during clear-sky passes or increasing the inter-frame matching sensitivity when variable illumination is detected.
+
+**Fault Tolerance**: The system implements four-mode graceful degradation for autonomous orbital operation:
+
+| Mode | Trigger | Active Systems | Power |
+|------|---------|---------------|-------|
+| **Full** | Boot (all tests pass) | TRT + VILA + Adaptive + Weather | 10W |
+| **Reduced** | 3 consecutive errors | TRT + Adaptive (no VLM) | 7W |
+| **Safe** | 5 consecutive errors | NDVI-only (no AI, no cloud) | 3.5W |
+| **Emergency** | 10 consecutive errors | Log-only (minimal power) | 2W |
+
+A watchdog timer auto-restarts the process if the main loop hangs. An anomaly detector flags stuck sensors, frame anomalies (black/saturated/fog), and sensor drift. After 5 minutes of clean operation, the system auto-upgrades one level. Ground control can force mode changes or adjust parameters via a Supabase configuration table — no OTA update required.
 
 ---
 

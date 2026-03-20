@@ -55,6 +55,7 @@ Built for the **NASA Space Apps Challenge**.
 | Llama 3.2 90B Vision (VLM) | NVIDIA NIM Cloud | ~5.6 s | Scene analysis + correction orchestration |
 | Adaptive Scheduling | Jetson CPU | <1 ms | 8-signal classification-aware zone prioritization |
 | Heuristic Fallback | Jetson CPU | <1 ms | Auto-activates if cloud unreachable |
+| Fault Tolerance | Jetson CPU | <1 ms | Watchdog, 4-mode degradation, anomaly detection |
 | Weather + Kalman | Jetson CPU | ~200 ms | Stress correlation + temporal smoothing |
 
 ---
@@ -99,7 +100,8 @@ Chroma-Shift/
 ├── triage_log.py               # Autonomous decision triage logger (NASA audit)
 ├── field_validate.py           # Field validation against NASA baselines
 ├── vila_analyzer.py            # Cloud VLM scene analyzer (4-mode priority chain)
-├── adaptive_sensing.py         # Adaptive observation scheduler
+├── adaptive_sensing.py         # Adaptive observation scheduler (8-signal)
+├── fault_tolerance.py          # Watchdog, safe mode, self-test, anomaly detection
 ├── weather.py                  # NWS API + NDVI-weather stress correlation
 ├── push_to_supabase.py         # Supabase database utilities
 ├── dashboard.html              # Real-time monitoring dashboard
@@ -151,6 +153,27 @@ Chroma-Shift/
 | Latency | ~5.6 s |
 | Output | Structured JSON (scene analysis + corrections) |
 | Fallback | Rule-based heuristic (<1 ms) |
+
+---
+
+## 🛡️ Fault Tolerance (Space-Grade)
+
+The system never fully stops — it degrades gracefully:
+
+| Mode | Trigger | Active Systems | Power |
+|------|---------|---------------|-------|
+| **Full** | Boot (all tests pass) | TRT + VILA + Adaptive + Weather | 10W |
+| **Reduced** | 3 consecutive errors | TRT + Adaptive (no VLM) | 7W |
+| **Safe** | 5 consecutive errors | NDVI-only (no AI, no cloud) | 3.5W |
+| **Emergency** | 10 consecutive errors | Log-only, minimal power | 2W |
+
+**Subsystems:**
+- **Watchdog** — Auto-restarts if main loop hangs for 120s
+- **Self-Test** — 8-component boot verification (GPU, TRT, Supabase, weather, disk, radiometric)
+- **Anomaly Detection** — Stuck sensors, black/saturated frames, sensor drift, NDVI out-of-range
+- **Remote Config** — Ground control overrides via Supabase (scan interval, force safe mode)
+- **Error Telemetry** — Every error pushed to Supabase for remote diagnostics
+- **Auto-Recovery** — Upgrades operating mode after 5 min of clean operation
 
 ---
 

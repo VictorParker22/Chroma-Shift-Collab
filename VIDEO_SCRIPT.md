@@ -96,6 +96,8 @@
 
 > *"The VLM sees the actual multispectral image pair plus weather data, and returns structured JSON — vegetation percentage, haze detection, illumination quality, correction overrides. When the AI classifier is uncertain — below 80% confidence — the system flags it and requests a VLM second opinion. Physics provides the foundation; AI provides the orchestration."*
 
+> *"And because this has to survive in orbit without human intervention — the system never fully stops. If the camera fails, it degrades to NDVI-only mode. If the GPU hangs, a watchdog restarts the process automatically. Ground control can push parameter changes through a database table without an OTA update. Four operating modes — full, reduced, safe, emergency — ensure the satellite keeps producing data even when hardware fails."*
+
 ---
 
 ## SCENE 7 — FROM GROUND TO ORBIT (2:35 – 2:52)
@@ -178,7 +180,7 @@ github.com/VictorParker22/Chroma-Shift
    → "99.7% bandwidth reduction — 1.3 KB telemetry vs 500 KB raw images. During stable periods, the system sleeps at 3.5W. Over a mission lifetime, this extends battery life by 40-60% compared to fixed-schedule observation."
 
 3. **"What about radiation tolerance?"**
-   → "The algorithms are pure Python math with no GPU-specific dependencies except DINOv2 inference. The pipeline ports directly to radiation-tolerant ARM/FPGA platforms. DINOv2 can be quantized for FPGA inference using Vitis AI."
+   → "The algorithms are pure Python math with no GPU-specific dependencies except DINOv2 inference. The pipeline ports directly to radiation-tolerant ARM/FPGA platforms. DINOv2 can be quantized for FPGA inference using Vitis AI. And our fault tolerance system handles single-event upsets — if a radiation hit crashes a component, the watchdog restarts it and the fault manager degrades gracefully until it self-recovers."
 
 4. **"Why not just use existing satellite data?"**
    → "Temporal resolution. Satellites revisit every 2-16 days. Our adaptive scheduler captures at 2-30 minute intervals. Stress events develop and become irreversible within 24-48 hours."
