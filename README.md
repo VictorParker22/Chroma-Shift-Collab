@@ -2,7 +2,7 @@
 
 **Self-Calibrating Multispectral Vegetation Monitoring with Edge-to-Cloud AI**
 
-Chroma-Shift is an autonomous crop stress detection system that combines multispectral imaging (Red + NIR), a 7-layer self-calibrating radiometric correction pipeline, DINOv2 on-device classification, a cloud-hosted 90B Vision-Language Model, and real-time weather correlation — all orchestrated from an NVIDIA Jetson Orin Nano.
+Chroma-Shift is an autonomous crop stress detection system that combines multispectral imaging (Red + NIR), a 7-layer self-calibrating radiometric correction pipeline, 4-class DINOv2 on-device classification (149 FPS via TensorRT), a cloud-hosted 90B Vision-Language Model, confidence threshold cross-checking, adaptive observation scheduling, and real-time weather correlation — all orchestrated from an NVIDIA Jetson Orin Nano.
 
 Built for the **NASA Space Apps Challenge**.
 
@@ -50,8 +50,10 @@ Built for the **NASA Space Apps Challenge**.
 | Component | Where | Latency | Purpose |
 |-----------|-------|---------|---------|
 | 7-Layer Radiometric Pipeline | Jetson CPU | ~15 ms | Physics-based self-calibration |
-| DINOv2 ViT-S/14 Classifier | Jetson GPU | 8.7 ms | Healthy vs stressed classification |
+| DINOv2 ViT-S/14 Classifier | Jetson GPU | 6.7 ms (149 FPS) | 4-class vegetation/soil/surface classification |
+| Confidence Thresholds | Jetson CPU | <1 ms | Cross-check AI vs NDVI physics, flag conflicts |
 | Llama 3.2 90B Vision (VLM) | NVIDIA NIM Cloud | ~5.6 s | Scene analysis + correction orchestration |
+| Adaptive Scheduling | Jetson CPU | <1 ms | 8-signal classification-aware zone prioritization |
 | Heuristic Fallback | Jetson CPU | <1 ms | Auto-activates if cloud unreachable |
 | Weather + Kalman | Jetson CPU | ~200 ms | Stress correlation + temporal smoothing |
 
@@ -102,12 +104,13 @@ Chroma-Shift/
 ├── push_to_supabase.py         # Supabase database utilities
 ├── dashboard.html              # Real-time monitoring dashboard
 │
-├── train_finetune_gpu.py       # DINOv2 full fine-tuning (RTX 4070 desktop)
+├── train_finetune_gpu.py       # DINOv2 full fine-tuning (RTX 4070 desktop, 4-class)
 ├── train_dinov2_v2.py          # DINOv2 linear probe training (Jetson, 8GB safe)
 ├── evaluate_model.py           # Confusion matrix + per-class metrics
 ├── build_dataset.py            # Dataset pipeline (PlantVillage + field augmentation)
-├── export_and_infer.py         # ONNX export + inference
-├── convert_tensorrt.py         # TensorRT FP16 engine builder
+├── build_multiclass_dataset.py # 4-class dataset builder (NDVI split + EuroSAT)
+├── export_and_infer.py         # ONNX export + inference (auto-detects 2/4 class)
+├── convert_tensorrt.py         # TensorRT FP16 engine builder (4-class, 149 FPS)
 │
 ├── SCIENTIFIC_AUDIT.md         # Pipeline audit + layer scoring (8.0/10)
 ├── TICKETS.md                  # Improvement tickets (Sprint 1 complete)
@@ -132,11 +135,12 @@ Chroma-Shift/
 | Metric | Value |
 |--------|-------|
 | Backbone | DINOv2 ViT-S/14 (22M params, fully fine-tuned) |
-| Training | Full fine-tune on RTX 4070 (30 epochs, FP16) |
-| Val Accuracy | 99.95% (1/1,837 misclassified) |
-| TensorRT Latency | 6.1 ms (FP16, Jetson Orin Nano) |
-| Classes | `healthy_vegetation`, `stressed_soil` |
-| Training Data | 366 field captures + PlantVillage (12,366 images) |
+| Training | Full fine-tune on RTX 4070 (30 epochs, FP16, class-weighted loss) |
+| Val Accuracy | 93.94% (4-class, 1,800 validation samples) |
+| TensorRT Latency | 6.7 ms (FP16, 149 FPS, Jetson Orin Nano) |
+| Classes | `healthy_vegetation`, `stressed_vegetation`, `bare_soil`, `non_vegetation` |
+| Training Data | ~12,000 images (field captures + EuroSAT satellite data) |
+| Confidence System | Cross-checks AI classification vs NDVI physics; flags <80% confidence |
 
 ### Cloud VLM Scene Analyzer (NVIDIA NIM)
 
@@ -201,12 +205,13 @@ Output:
 ```
 ═══ Cycle 1 ═════════════════════════════════════════════
   🌐 NVIDIA NIM Cloud VLM: meta/llama-3.2-90b-vision-instruct
-  🌤️  Weather: 12°C, 45% RH, Partly Cloudy
-  [16:30:00] Scanning T1 (USS Maine Monument)
+  🌤️  Weather: 6.1°C, 42.9% RH, Clear
+  [16:30:00] Scanning B3 (Great Lawn)
   📡 VLM: 80% vegetation, uniform illumination, conf 0.8
   🔬 7-layer correction applied (109 validations)
-  NDVI=0.3344 (seasonal baseline 0.25) → healthy ✅
-  🤖 DINOv2: healthy_vegetation (99.95% confidence, 8.7ms)
+  NDVI=0.2913 (seasonal baseline 0.404) → 🟡 28% below
+  🤖 DINOv2: healthy_vegetation (90.4% confidence, 6.7ms)
+  ⏱️  Adaptive: next scan in 568s, priority 0.43
 ```
 
 ---

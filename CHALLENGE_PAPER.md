@@ -16,11 +16,11 @@ The complete pipeline — capture, correction, classification, adaptive scheduli
 
 | Criterion | How Chroma-Shift Addresses It |
 |-----------|------------------------------|
-| **Creativity** | AI-orchestrated correction pipeline where a VLM dynamically decides which physics layers to apply; NDVI-based PIF detection (novel); 4-mode VLM priority chain |
-| **Technical Feasibility** | Running code validated on 10W hardware with 109 automated tests; 99.95% accuracy, 8.7 ms on-device inference; adaptive scheduling from 2–30 min |
+| **Creativity** | AI-orchestrated correction pipeline where a VLM dynamically decides which physics layers to apply; NDVI-based PIF detection (novel); 4-mode VLM priority chain; confidence-threshold cross-checking between AI classifier and NDVI physics |
+| **Technical Feasibility** | Running code validated on 10W hardware with 109 automated tests; 93.94% 4-class accuracy, 6.7 ms on-device inference (149 FPS); 8-signal adaptive scheduling from 2–30 min |
 | **Impact** | >95% reduction in downlink volume (send 1.3 KB telemetry vs. 500 KB raw image); early stress detection days before satellite revisit would catch it |
 | **Business Model** | $8.5B precision agriculture market; satellite ground-truth network; applicable to forestry, reforestation, and disaster monitoring |
-| **Presentation** | Working prototype, live cloud VLM demo, NASA HLS calibration |
+| **Presentation** | Working prototype with full 8-step pipeline validated, live cloud VLM demo, NASA HLS calibration |
 
 ---
 
@@ -38,11 +38,11 @@ OBSERVE → CORRECT → ANALYZE → DECIDE → OBSERVE ...
 
 **Adaptive Sensing Decisions:**
 
-1. **WHEN to observe** — The scheduler adjusts capture intervals from 2 minutes (active stress event) to 30 minutes (stable nighttime), based on NDVI change rate, VLM confidence, weather stability, and solar elevation. Seven independent signals are fused into a single scheduling decision.
+1. **WHEN to observe** — The scheduler adjusts capture intervals from 2 minutes (active stress event) to 30 minutes (stable nighttime), based on NDVI change rate, VLM confidence, weather stability, solar elevation, and DINOv2 classification confidence. Eight independent signals are fused into a single scheduling decision with classification-aware priority weighting.
 
-2. **WHERE to look** — Multiple field zones are ranked by observation priority. Zones showing stress or rapid change are observed first during limited orbital passes. Stable zones are deprioritized.
+2. **WHERE to look** — Multiple field zones are ranked by observation priority. Zones classified as `stressed_vegetation` are observed 2.5× more frequently. `bare_soil` and `non_vegetation` zones are deprioritized. Zones with low AI confidence (<80%) are automatically re-scanned sooner for verification.
 
-3. **HOW to process** — Power-constrained cycles use CPU-only heuristic analysis (<1 ms). Full-power cycles deploy GPU-accelerated DINOv2 classification (8.7 ms) and optionally query a cloud VLM (5.6 s) for deep scene reasoning. The system gracefully degrades across three power modes: full, reduced, and sleep.
+3. **HOW to process** — Power-constrained cycles use CPU-only heuristic analysis (<1 ms). Full-power cycles deploy GPU-accelerated DINOv2 classification (6.7 ms, 149 FPS via TensorRT FP16) and optionally query a cloud VLM (5.6 s) for deep scene reasoning. A confidence threshold system cross-checks AI classification against NDVI physics, flagging conflicts (e.g., "healthy vegetation" classification but very low NDVI). The system gracefully degrades across three power modes: full, reduced, and sleep.
 
 ### 2.b Problem Statement
 
@@ -62,11 +62,12 @@ The system integrates the following established algorithms into an onboard proce
 | Solar Zenith Correction (Spencer, 1971) | — | Illumination geometry normalization |
 | Cloud Transmittance (Kasten & Czeplak, 1980) | DOI: 10.1016/0038-092X(80)90075-2 | Cloud cover compensation |
 | NASA HLS Baseline (Claverie et al., 2018) | DOI: 10.1016/j.rse.2018.09.002 | Seasonal phenology reference |
-| DINOv2 Classification (Oquab et al., 2024) | arXiv: 2304.07193 | Vegetation/stress classification |
+| DINOv2 Classification (Oquab et al., 2024) | arXiv: 2304.07193 | 4-class vegetation/soil/surface classification |
 
 **Novel contributions:**
 - **Layer 5 — NDVI-Based PIF Detection**: Inter-frame illumination matching using spectral flatness (|NDVI| < 0.15) rather than brightness thresholds to identify pseudo-invariant features. This is critical for sequential-filter multispectral cameras where Red and NIR frames are captured seconds apart.
-- **Adaptive Scheduling Algorithm**: Seven-signal fusion for dynamic observation cadence.
+- **Adaptive Scheduling Algorithm**: Eight-signal fusion for dynamic observation cadence, including classification-aware zone prioritization.
+- **Confidence Threshold Cross-Checking**: Automated detection of conflicts between DINOv2 classification and NDVI physics readings, flagging ambiguous scenes for VLM second-opinion analysis.
 
 ### 2.d SmallSat Technical Requirements
 
@@ -77,7 +78,7 @@ The system integrates the following established algorithms into an onboard proce
 | RAM | 8 GB unified LPDDR5 | 4–8 GB (Q8S: 4 GB DDR4) |
 | GPU/Accel. | 1024 CUDA + 32 Tensor Cores | FPGA fabric / dedicated NPU |
 | Storage | 1 TB NVMe | 256 GB radiation-tolerant flash |
-| Inference | 8.7 ms (TensorRT FP16) | ~15 ms (FPGA equivalent) |
+| Inference | 6.7 ms (TensorRT FP16, 149 FPS) | ~15 ms (FPGA equivalent) |
 | Downlink | ~1.3 KB/cycle (telemetry only) | S-band: 1–2 Mbps, ~150 MB/pass |
 
 **Bandwidth efficiency**: By processing onboard and downlinking only scalar telemetry (NDVI value, stress classification, adaptive decision, VLM explanation), the system reduces downlink volume by **>99.7%** compared to transmitting raw image pairs (500 KB compressed vs. 1.3 KB telemetry).
@@ -113,7 +114,7 @@ The system extends NASA's HLS surface reflectance product from a post-processed 
 
 **Scenario 2 — Stable Growth Period**: During a week of consistent weather, NDVI readings vary by <0.01 between cycles. The adaptive scheduler extends intervals to 30 minutes and enters reduced-power mode, conserving battery for future stress events. Downlink is limited to hourly summary reports.
 
-**Limitations**: The DINOv2 classifier achieves 99.95% accuracy on 12,366 training images from 366 field captures. Multi-season data would strengthen generalization further. The cloud VLM requires ground-station connectivity during orbital passes; the onboard heuristic provides <1 ms fallback at all times.
+**Limitations**: The DINOv2 classifier achieves 93.94% accuracy across 4 classes (healthy vegetation, stressed vegetation, bare soil, non-vegetation) trained on ~12,000 images from field captures and EuroSAT satellite data. The primary confusion is between bare soil and non-vegetation classes — resolvable with more field-collected ground truth. A confidence threshold system flags uncertain classifications (<80%) for VLM verification. The cloud VLM requires ground-station connectivity during orbital passes; the onboard heuristic provides <1 ms fallback at all times.
 
 ---
 
@@ -169,11 +170,11 @@ The adaptive sensing framework is sensor-agnostic — any onboard algorithm that
 
 ## 6. Conclusion
 
-Chroma-Shift demonstrates that the computational building blocks for adaptive, intelligent vegetation monitoring already exist — and can run within the power and compute envelope of current SmallSat hardware. The seven-layer self-calibrating pipeline eliminates the need for ground-based calibration panels. The adaptive scheduling algorithm reduces observation volume during stable periods and surges during stress events. The edge-to-cloud AI architecture places lightweight classification on-device (8.7 ms, zero latency) while leveraging cloud VLMs for deep scene reasoning during ground-station passes.
+Chroma-Shift demonstrates that the computational building blocks for adaptive, intelligent vegetation monitoring already exist — and can run within the power and compute envelope of current SmallSat hardware. The seven-layer self-calibrating pipeline eliminates the need for ground-based calibration panels. The eight-signal adaptive scheduling algorithm — now classification-aware — reduces observation volume during stable periods and surges during stress events, with intelligent zone prioritization based on DINOv2 land-cover classification. The edge-to-cloud AI architecture places lightweight 4-class classification on-device (6.7 ms, 149 FPS via TensorRT FP16) while leveraging cloud VLMs for deep scene reasoning during ground-station passes. A confidence threshold system cross-checks AI classification against NDVI physics, ensuring no conflicting signal goes undetected.
 
 By processing onboard and downlinking only scalar telemetry, the system achieves a **>99.7% reduction in downlink bandwidth** compared to transmitting raw imagery — enabling a single S-band pass to carry thousands of observation results rather than a handful of images. This is the shift the challenge calls for: from passive data collection to active, onboard insight generation.
 
-The complete pipeline is open-source, validated with 109 automated tests, and calibrated against NASA HLS satellite data. The ground-level testbed running on equivalent hardware demonstrates that the same algorithms can fly.
+The complete pipeline is open-source, validated with 109 automated tests, and calibrated against NASA HLS satellite data. The full 8-step pipeline (Sense → Correct → Measure → Compare → Classify → Weather → Advise → Log) completes end-to-end in under 4 seconds on the Jetson. The ground-level testbed running on equivalent hardware demonstrates that the same algorithms can fly.
 
 ---
 

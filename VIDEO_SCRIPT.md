@@ -38,7 +38,7 @@
 
 ### [Cut to slide showing NASA HLS data — 296 observations graph]
 
-> *"We calibrated our system against five years of NASA's Harmonized Landsat Sentinel-2 data — 296 clear-sky observations over Central Park, New York. This gives us a ground-truth seasonal baseline that's directly comparable to satellite measurements."*
+> *"We calibrated our system against five years of NASA's Harmonized Landsat Sentinel-2 data — 296 clear-sky observations over Central Park, New York. This gives us a ground-truth seasonal baseline with week-by-week phenology curves."*
 
 ### [Hold up the filter wheel or point to it on the desk]
 
@@ -76,13 +76,13 @@
 
 ### [Cut to slide showing adaptive scheduling diagram]
 
-> *"Current satellites observe on fixed schedules. Chroma-Shift observes on demand. Seven signals drive the scheduling — NDVI stress, scene change rate, weather stability, solar position, AI confidence, illumination variability, and power state."*
+> *"Current satellites observe on fixed schedules. Chroma-Shift observes on demand. Eight signals drive the scheduling — NDVI stress, scene change rate, weather stability, solar position, AI confidence, illumination variability, power state, and now DINOv2 classification. If the AI detects stressed vegetation, scan frequency jumps to every two minutes. Bare soil or concrete? The scheduler deprioritizes that zone automatically."*
 
 ### [Cut to screen recording showing adaptive scheduler output]
 
-> *"During a frost event, the system drops to two-minute intervals and ranks the most stressed zones first. During stable growth, it extends to thirty minutes and enters sleep mode at 3.5 watts. This means the satellite observes MORE when it matters and conserves power when it doesn't."*
+> *"During a frost event, the system drops to two-minute intervals and ranks the most stressed zones first. During stable growth, it extends to thirty minutes and enters sleep mode at 3.5 watts. And here's a key innovation: a confidence threshold system cross-checks the AI classification against the NDVI physics. If the model says 'healthy vegetation' but NDVI is critically low, it flags the conflict and triggers a re-scan."*
 
-> *"And here's the bandwidth story: instead of downlinking a 500-kilobyte image, we downlink 1.3 kilobytes of processed telemetry. That's a 99.7% reduction. One S-band pass can carry thousands of observations instead of a handful of images."*
+> *"And the bandwidth story: instead of downlinking a 500-kilobyte image, we downlink 1.3 kilobytes of processed telemetry. That's a 99.7% reduction. One S-band pass can carry thousands of observations instead of a handful of images."*
 
 ---
 
@@ -90,11 +90,11 @@
 
 ### [Cut to slide showing DINOv2 on-device + cloud VLM architecture]
 
-> *"Two AI systems work together. On-device, a DINOv2 classifier runs at 8.7 milliseconds per frame — fast enough for real-time processing. In the cloud — or on a ground station — a 90-billion-parameter Vision Language Model analyzes the scene and decides which correction layers to apply. If the radio link is down, a rule-based heuristic takes over in under one millisecond. Zero downtime."*
+> *"Two AI systems work together. On-device, a DINOv2 vision transformer classifies every frame into one of four categories — healthy vegetation, stressed vegetation, bare soil, or non-vegetation — at 6.7 milliseconds per frame. That's 149 frames per second via TensorRT FP16 on the Jetson's Tensor Cores. In the cloud, a 90-billion-parameter Vision Language Model analyzes the scene and decides which correction layers to apply. If the radio link is down, a rule-based heuristic takes over in under one millisecond. Zero downtime."*
 
 ### [Cut to screen recording of live VLM response: JSON output]
 
-> *"The VLM sees the actual multispectral image pair plus weather data, and returns structured JSON — vegetation percentage, haze detection, illumination quality, correction overrides. Physics provides the foundation; AI provides the orchestration."*
+> *"The VLM sees the actual multispectral image pair plus weather data, and returns structured JSON — vegetation percentage, haze detection, illumination quality, correction overrides. When the AI classifier is uncertain — below 80% confidence — the system flags it and requests a VLM second opinion. Physics provides the foundation; AI provides the orchestration."*
 
 ---
 
@@ -118,7 +118,7 @@
 ```
 CHROMA-SHIFT
 Adaptive Onboard Processing for Regenerative Agriculture SmallSats
-NVIDIA Jetson · DINOv2 · NASA HLS · Self-Calibrating Pipeline
+DINOv2 (4-class, 149 FPS) · TensorRT FP16 · NASA HLS · Self-Calibrating Pipeline
 github.com/VictorParker22/Chroma-Shift
 ```
 
@@ -184,4 +184,4 @@ github.com/VictorParker22/Chroma-Shift
    → "Temporal resolution. Satellites revisit every 2-16 days. Our adaptive scheduler captures at 2-30 minute intervals. Stress events develop and become irreversible within 24-48 hours."
 
 5. **"What's your unfair advantage?"**
-   → "Working code. 109 tests passing. Live cloud VLM integration. NASA HLS calibration. Most proposals are PowerPoints — we have a running prototype on flight-equivalent hardware."
+   → "Working code. 109 tests passing. 4-class DINOv2 at 149 FPS. Live cloud VLM integration. Confidence threshold cross-checking. NASA HLS calibration. Full 8-step pipeline validated end-to-end in 3.8 seconds. Most proposals are PowerPoints — we have a running prototype on flight-equivalent hardware."
