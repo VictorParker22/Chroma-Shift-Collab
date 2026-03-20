@@ -50,6 +50,10 @@ AI_MODEL_PATH = os.environ.get(
                  "results", "dino_v2_classify", "best_model.pth")
 )
 
+# 4-class labels (must match training order)
+AI_CLASSES_4 = ["bare_soil", "healthy_vegetation", "non_vegetation", "stressed_vegetation"]
+AI_IMAGE_SIZE = 224
+
 # ---------------------------------------------------------------------------
 # Paths & env
 # ---------------------------------------------------------------------------
@@ -475,7 +479,13 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
             ai_result = ai_classify(red_frame)
             ai_class = ai_result["class"]
             ai_conf = ai_result["confidence"]
-            ai_icon = "🌿" if ai_class == "healthy_vegetation" else "🟤"
+            ai_icons = {
+                "healthy_vegetation": "🌿",
+                "stressed_vegetation": "🟡",
+                "bare_soil": "🟤",
+                "non_vegetation": "⬛",
+            }
+            ai_icon = ai_icons.get(ai_class, "🤖")
             print(f"{ai_icon}AI:{ai_class}({ai_conf:.0f}%)", end=" ")
         except Exception as e:
             print(f"⚠️AI:{e}", end=" ")
@@ -534,6 +544,24 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
     # 15. Heartbeat
     push_heartbeat(sb, "scanning", FILTER_SLOT_NIR, scan_count, alert_count + new_alerts)
 
+    # 15b. Crop Advisory (with confidence thresholds)
+    advisory = None
+    try:
+        from crop_advisor import generate_advisory, format_advisory_text
+        advisory = generate_advisory(
+            ndvi=mean_ndvi,
+            seasonal_data=seasonal,
+            weather=weather,
+            classification=ai_result,
+            zone_name=zone_name,
+        )
+        # Print confidence flags if present
+        if advisory.get("confidence_flags"):
+            for flag in advisory["confidence_flags"]:
+                print(f"           {flag}")
+    except Exception as e:
+        pass  # crop_advisor is optional
+
     # Summary
     marker = "✅" if status == "healthy" else "⚠️"
     print(f"NDVI={mean_ndvi:.4f} (raw={raw_ndvi:.4f}, baseline={baseline:.2f}/{season}) → {status} {marker}")
@@ -551,12 +579,14 @@ def scan_zone(cap, efw, sb, zone_id, scan_count, alert_count,
     cv2.imwrite(os.path.join(CAPTURES_DIR, f"{zone_id}_{ts}_red.png"), red_frame)
     cv2.imwrite(os.path.join(CAPTURES_DIR, f"{zone_id}_{ts}_nir.png"), nir_frame)
 
-    # Return scan result for adaptive scheduling
+    # Return scan result for adaptive scheduling (with classification)
     scan_result = {
         "ndvi": mean_ndvi,
         "baseline": baseline,
         "vila_result": vila_result,
         "solar": solar,
+        "classification": ai_result,
+        "advisory": advisory,
     }
     return new_alerts, scan_result
 
@@ -658,8 +688,8 @@ def main():
 
             _trt_cls = TRTClassifier(AI_ENGINE_PATH)
 
-            # Warmup
-            _dummy = np.random.randn(1, 3, 168, 168).astype(np.float32)
+            # Warmup with correct 224px input size
+            _dummy = np.random.randn(1, 3, AI_IMAGE_SIZE, AI_IMAGE_SIZE).astype(np.float32)
             for _ in range(3):
                 _trt_cls.predict(_dummy)
 
@@ -670,9 +700,11 @@ def main():
                 img = PILImage.fromarray(rgb)
                 return _trt_cls.classify_image_pil(img)
 
-            # Add a PIL classify method to TRTClassifier
+            # Add a PIL classify method for 4-class model
             def _classify_pil(self, pil_img):
-                pil_img = pil_img.resize((168, 168), PILImage.BILINEAR)
+                pil_img = pil_img.resize(
+                    (AI_IMAGE_SIZE, AI_IMAGE_SIZE), PILImage.BILINEAR
+                )
                 arr = np.array(pil_img, dtype=np.float32) / 255.0
                 mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
                 std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -680,12 +712,15 @@ def main():
                 arr = arr.transpose(2, 0, 1)[np.newaxis, ...]
                 probs = self.predict(arr)
                 idx = int(np.argmax(probs))
-                return {
-                    "class": AI_CLASSES[idx],
+                classes = AI_CLASSES_4
+                result = {
+                    "class": classes[idx],
                     "confidence": float(probs[idx]) * 100,
-                    "healthy_prob": float(probs[0]),
-                    "stressed_prob": float(probs[1]),
                 }
+                # Include per-class probabilities for confidence threshold system
+                for i, cls_name in enumerate(classes):
+                    result[f"{cls_name}_prob"] = float(probs[i])
+                return result
 
             from PIL import Image as PILImage
             TRTClassifier.classify_image_pil = _classify_pil
@@ -697,7 +732,7 @@ def main():
                 return _trt_cls.classify_image_pil(img)
 
             ai_classify = _classify_frame
-            print(f"TensorRT FP16 loaded (~20ms/frame) ✅")
+            print(f"TensorRT FP16 loaded (4-class, {AI_IMAGE_SIZE}px, ~6.7ms/frame) ✅")
         except Exception as e:
             print(f"\n  ⚠️  TensorRT load failed: {e}")
             print("      Falling back to PyTorch …")
@@ -712,10 +747,12 @@ def main():
             from PIL import Image
             from torchvision import transforms as T
 
-            AI_CLASSES = ["healthy_vegetation", "stressed_soil"]
-            AI_IMAGE_SIZE = 168
+            AI_CLASSES = AI_CLASSES_4
+            AI_IMG_SIZE = AI_IMAGE_SIZE
             AI_MEAN = [0.485, 0.456, 0.406]
             AI_STD = [0.229, 0.224, 0.225]
+
+            num_classes = len(AI_CLASSES)
 
             class _DINOv2Cls(nn.Module):
                 def __init__(self):
@@ -727,7 +764,7 @@ def main():
                         p.requires_grad = False
                     self.backbone.eval()
                     self.head = nn.Sequential(
-                        nn.Dropout(0.1), nn.Linear(self.backbone.embed_dim, 2)
+                        nn.Dropout(0.1), nn.Linear(self.backbone.embed_dim, num_classes)
                     )
                 def forward(self, x):
                     return self.head(self.backbone(x))
@@ -740,7 +777,7 @@ def main():
             _ai_model.eval()
 
             _ai_transform = T.Compose([
-                T.Resize((AI_IMAGE_SIZE, AI_IMAGE_SIZE)),
+                T.Resize((AI_IMG_SIZE, AI_IMG_SIZE)),
                 T.ToTensor(),
                 T.Normalize(AI_MEAN, AI_STD),
             ])
@@ -754,16 +791,17 @@ def main():
                 logits = _ai_model(tensor)
                 probs = F.softmax(logits, dim=1)[0].cpu().numpy()
                 idx = int(probs.argmax())
-                return {
+                result = {
                     "class": AI_CLASSES[idx],
                     "confidence": float(probs[idx]) * 100,
-                    "healthy_prob": float(probs[0]),
-                    "stressed_prob": float(probs[1]),
                 }
+                for i, cls_name in enumerate(AI_CLASSES):
+                    result[f"{cls_name}_prob"] = float(probs[i])
+                return result
 
             ai_classify = _classify_frame
             val_acc = _ckpt.get("val_acc", "?")
-            print(f"DINOv2 ViT-S/14 loaded (val_acc={val_acc}%, ~1s/frame CPU) ✅")
+            print(f"DINOv2 ViT-S/14 loaded ({num_classes}-class, val_acc={val_acc}%, ~1s/frame CPU) ✅")
         except Exception as e:
             print(f"\n  ⚠️  AI classifier not available: {e}")
             print("      (NDVI-only mode — scans will continue without AI)")
@@ -825,6 +863,7 @@ def main():
                             vila_result=scan_result.get("vila_result"),
                             weather=weather,
                             solar=scan_result.get("solar"),
+                            classification=scan_result.get("classification"),
                         )
                         # Use the shortest interval across all zones
                         next_interval = min(next_interval, decision["interval_sec"])
