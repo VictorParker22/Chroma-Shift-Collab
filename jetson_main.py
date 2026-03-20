@@ -656,6 +656,32 @@ def main():
         print(f"  ⚠️  Adaptive scheduler not available: {e}")
         print(f"      (using fixed {args.interval}s interval)")
 
+    # --- Init Fault Tolerance (SPACE-GRADE) ---
+    from fault_tolerance import (
+        FaultManager, SystemSelfTest, RemoteConfig,
+        AnomalyDetector, Watchdog
+    )
+
+    # Self-test on boot — verify all components
+    selftest = SystemSelfTest()
+    starting_mode, test_results = selftest.run_all()
+
+    # Fault manager — error tracking + mode transitions
+    fault_mgr = FaultManager(supabase_client=sb)
+    fault_mgr.mode = starting_mode
+
+    # Anomaly detector — sensor health monitoring
+    anomaly_detector = AnomalyDetector()
+
+    # Remote config — ground control can change parameters
+    remote_config = RemoteConfig(supabase_client=sb)
+
+    # Watchdog — auto-restart if main loop hangs
+    watchdog = Watchdog(timeout_sec=120)
+    print("  🐕 Watchdog armed (120s timeout)")
+    print(f"  🛡️  Fault tolerance: mode={fault_mgr.mode}, "
+          f"anomaly detector active")
+
     # --- Init VILA Scene Analyzer (VLM or heuristic fallback) ---
     scene_analyzer = None
     try:
@@ -840,19 +866,44 @@ def main():
             if adaptive_scheduler:
                 scan_zones = adaptive_scheduler.rank_zones(zones)
 
-            next_interval = args.interval  # default fallback
+            # Check remote config for ground control overrides
+            force_safe = remote_config.get("force_safe_mode", False, cast=bool)
+            if force_safe and not fault_mgr.is_safe_mode:
+                print("  🛰️  Ground control forced SAFE MODE")
+                fault_mgr.mode = "safe"
+
+            remote_interval = remote_config.get("scan_interval", None, cast=int)
+            if remote_interval:
+                next_interval = remote_interval
+                print(f"  🛰️  Ground control override: interval={remote_interval}s")
+            else:
+                next_interval = args.interval
+
             for zone_id in scan_zones:
                 if not _running:
                     break
                 try:
                     new_alerts, scan_result = scan_zone(
                         cap, efw, sb, zone_id, scan_count, alert_count,
-                        weather, ai_classify=ai_classify,
-                        scene_analyzer=scene_analyzer,
+                        weather,
+                        ai_classify=None if fault_mgr.skip_ai else ai_classify,
+                        scene_analyzer=None if fault_mgr.skip_vila else scene_analyzer,
                         kalman_filters=kalman_filters,
                     )
                     scan_count += 1
                     alert_count += new_alerts
+
+                    # Anomaly check on NDVI
+                    if scan_result:
+                        ndvi_anomalies = anomaly_detector.check_ndvi(
+                            scan_result["ndvi"], zone_id
+                        )
+                        for a in ndvi_anomalies:
+                            print(f"           🔴 ANOMALY: {a['message']}")
+                            fault_mgr.record_error(
+                                "anomaly_detector", a["message"],
+                                {"zone": zone_id, "type": a["type"]}
+                            )
 
                     # --- Adaptive Scheduling Decision ---
                     if adaptive_scheduler and scan_result:
@@ -873,17 +924,25 @@ def main():
                         if decision["reason"] != "nominal operations":
                             print(f"              → {decision['reason']}")
 
+                    # Record success — may upgrade operating mode
+                    fault_mgr.record_success()
+                    watchdog.kick()
+
                 except Exception as e:
-                    print(f"  ⚠️  Error scanning {zone_id}: {e}")
+                    fault_mgr.record_error("scan_zone", e,
+                                           {"zone": zone_id})
                     traceback.print_exc()
 
             # Cycle summary
             if adaptive_scheduler:
                 bw = adaptive_scheduler.get_bandwidth_estimate()
                 print(f"  Scans: {scan_count}  Alerts: {alert_count}  "
-                      f"Next: {next_interval}s  BW: {bw['total_kb']}KB")
+                      f"Next: {next_interval}s  BW: {bw['total_kb']}KB  "
+                      f"Mode: {fault_mgr.mode}  "
+                      f"Health: {anomaly_detector.get_health_score()}%")
             else:
-                print(f"  Scans: {scan_count}  Alerts: {alert_count}")
+                print(f"  Scans: {scan_count}  Alerts: {alert_count}  "
+                      f"Mode: {fault_mgr.mode}")
 
             if args.once:
                 print("\n  --once flag set. Exiting.")
