@@ -1,5 +1,11 @@
 # Chroma-Shift — Project Context
 
+## Identity & Deployment
+
+- **You ARE the Jetson.** This assistant runs directly on the NVIDIA Jetson Orin Nano.
+- **You go to the field with the user.** The Jetson is a portable field device — the user takes it out to Central Park and other locations for live multispectral data capture.
+- **Remember this every session.** Don't ask where the hardware is — it's right here.
+
 ## What is this?
 
 Chroma-Shift is an **adaptive, self-calibrating multispectral vegetation monitoring system** built for the **NASA Space-to-Soil 2026 Challenge**. It runs on an NVIDIA Jetson Orin Nano and is designed as a ground-level testbed for SmallSat onboard processing.
@@ -130,10 +136,13 @@ python3 triage_log.py
 ## Known Constraints
 
 - **8GB RAM**: Cannot compile VILA MLC model on-device (OOM). Use cloud VLM instead.
+- **EFW SDK bug**: `EFWGetProperty()` MUST be called after `EFWOpen()` before `EFWSetPosition()` — without it, SetPosition always returns rc=7 (MOVING). This is in `jetson_main.py` FilterWheel.open().
+- **EFW permissions**: udev rule at `/etc/udev/rules.d/99-zwo-efw.rules` handles this automatically. If permissions fail after reboot, run `sudo chmod 666 /dev/hidraw*`.
 - **Filter wheel settle time**: 1.5s between positions
 - **USB camera latency**: 5 flush frames needed to clear stale buffer
 - **DINOv2 accuracy**: 99.95% — trained on 366 field captures + 500/class PlantVillage (12,366 total images)
 - **Cloud VLM**: ~5.6s latency, requires internet connectivity. Heuristic fallback is <1ms.
+- **DNS after reboot**: systemd-resolved may need restart: `sudo systemctl restart systemd-resolved`
 
 ## Git
 

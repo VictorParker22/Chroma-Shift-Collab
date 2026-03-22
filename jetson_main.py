@@ -141,14 +141,26 @@ signal.signal(signal.SIGTERM, _signal_handler)
 # EFW — ctypes wrapper (same as capture_multispectral_pair.py)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class EFW_INFO(ctypes.Structure):
-    _fields_ = [("ID", ctypes.c_int), ("Name", ctypes.c_char * 64), ("slotNum", ctypes.c_int)]
+    """Mirrors the EFW_INFO struct from the ZWO EFW SDK."""
+    _fields_ = [
+        ("ID", ctypes.c_int),
+        ("Name", ctypes.c_char * 64),
+        ("slotNum", ctypes.c_int),
+    ]
+
 
 class FilterWheel:
     def __init__(self):
         lib_path = os.path.join(SCRIPT_DIR, "lib", "libEFWFilter.so")
         ctypes.CDLL("libudev.so", mode=ctypes.RTLD_GLOBAL)
         self._lib = ctypes.CDLL(lib_path)
+        self._lib.EFWOpen.restype = ctypes.c_int
+        self._lib.EFWSetPosition.restype = ctypes.c_int
+        self._lib.EFWGetPosition.restype = ctypes.c_int
+        self._lib.EFWGetProperty.restype = ctypes.c_int
+        self._lib.EFWClose.restype = ctypes.c_int
         self._id = None
 
     def open(self):
@@ -160,6 +172,9 @@ class FilterWheel:
         rc = self._lib.EFWOpen(self._id)
         if rc != 0:
             raise RuntimeError(f"EFWOpen failed (rc={rc})")
+        # REQUIRED: EFWGetProperty must be called after Open, before SetPosition
+        info = EFW_INFO()
+        self._lib.EFWGetProperty(self._id, ctypes.byref(info))
         # Wait for calibration
         self._wait_ready()
 
@@ -638,8 +653,11 @@ def main():
     print("EFW ready ✅")
 
     # --- Push initial heartbeat ---
-    push_heartbeat(sb, "scanning", 0, 0, 0)
-    print("  Initial heartbeat pushed 💓")
+    try:
+        push_heartbeat(sb, "scanning", 0, 0, 0)
+        print("  Initial heartbeat pushed 💓")
+    except Exception as e:
+        print(f"  ⚠️  Heartbeat failed (network?): {e}")
 
     # --- Init Radiometric Correction (per-zone Kalman filters) ---
     kalman_filters = {zone_id: KalmanNDVI() for zone_id in zones}
@@ -677,8 +695,8 @@ def main():
     remote_config = RemoteConfig(supabase_client=sb)
 
     # Watchdog — auto-restart if main loop hangs
-    watchdog = Watchdog(timeout_sec=120)
-    print("  🐕 Watchdog armed (120s timeout)")
+    watchdog = Watchdog(timeout_sec=300)
+    print("  🐕 Watchdog armed (300s timeout)")
     print(f"  🛡️  Fault tolerance: mode={fault_mgr.mode}, "
           f"anomaly detector active")
 
@@ -960,6 +978,7 @@ def main():
                 # Sleep in small increments so SIGINT is responsive
                 wake_at = time.time() + sleep_time
                 while time.time() < wake_at and _running:
+                    watchdog.kick()
                     time.sleep(1)
 
     finally:

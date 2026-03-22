@@ -432,7 +432,39 @@ Every error, mode change, and anomaly is pushed to a `system_errors` Supabase ta
 
 ---
 
-## 13. Limitations and Next Steps
+## 13. Field Validation
+
+### 13.1 Deployment — March 21, 2026
+
+The first sustained field deployment was conducted on March 21, 2026, at Central Park, NYC (Zone C1 — West Terrace). The Jetson Orin Nano was carried into the field with the camera and filter wheel, and the pipeline ran continuously for over 25 minutes with 2-minute scan intervals.
+
+**Conditions**: 13.9°C, 37–38% RH, Clear sky, solar elevation ~25–30° (late afternoon).
+
+| Metric | Value |
+|--------|-------|
+| Continuous cycles completed | 12+ (zero failures, zero watchdog triggers) |
+| Capture pairs saved | 17 Red+NIR pairs (34 images + 17 stress maps) |
+| NDVI range (Kalman-filtered) | 0.28–0.35 |
+| NASA HLS spring baseline | 0.41 |
+| NDVI seasonal deviation | -0.06 to -0.13 |
+| AI classification | healthy_vegetation (48–53%) |
+| VLM scene descriptions | "winter scene with bare trees and grass", "barren, sandy field", "field with vegetation and soil" |
+| Interframe mismatch | 10–23% (camera movement between Red→NIR) |
+| System health | 100% across all runs |
+| Adaptive priority | 0.68–0.98 (high, stress detected) |
+
+The NDVI readings of 0.28–0.35 fall below the NASA HLS spring baseline of 0.41, consistent with early-March dormant-season vegetation in the northeastern United States. The Kalman temporal filter reduced cycle-to-cycle NDVI jitter from ±0.05 (raw) to ±0.02 (filtered). The adaptive scheduler correctly responded to below-baseline NDVI by maintaining 120-second (maximum frequency) scan intervals throughout the session.
+
+The NVIDIA NIM cloud VLM (Llama 3.2 90B Vision) correctly identified the outdoor scene across multiple cycles, describing "bare trees," "grass," "soil," and "vegetation" — context that the NDVI number alone cannot provide. When the cloud VLM timed out on one cycle, the system gracefully fell back to heuristic mode (60% confidence) and resumed cloud VLM on the next cycle.
+
+### 13.2 Hardware Integration Fix
+
+During pre-deployment testing, a critical EFW SDK bug was discovered: the ZWO `libEFWFilter.so` library for aarch64 requires `EFWGetProperty()` to be called after `EFWOpen()` and before `EFWSetPosition()`. Without this initialization step, `EFWSetPosition` permanently returns `EFW_ERROR_MOVING` (rc=7). This was traced through extensive debugging including USB-level resets, HIDAPI protocol reverse-engineering, and firmware state analysis. The fix — a single `EFWGetProperty()` call — resolved the issue completely and has been stable across all subsequent runs.
+
+---
+
+## 14. Limitations and Next Steps
+
 
 The system's principal limitation in its current form is the diversity of its training dataset. With approximately 400 original field captures, the 4-class model achieves 93.94% validation accuracy but occasionally misclassifies ambiguous scenes (e.g., wet soil as vegetation, or dry grass as bare soil). The confidence threshold system mitigates this by flagging uncertain classifications, but additional field data—particularly for the bare_soil and non_vegetation classes—would improve separation. Each new field visit can be incorporated through the full fine-tuning pipeline in under 30 minutes on a desktop GPU.
 

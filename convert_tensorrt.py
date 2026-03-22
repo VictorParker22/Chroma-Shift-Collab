@@ -131,16 +131,22 @@ def convert_onnx_to_trt(onnx_path, engine_path, fp16=True, max_batch=1):
 class TRTClassifier:
     """Wraps a TensorRT engine for classification inference.
 
-    Uses TensorRT's native CUDA runtime (cudart) instead of pycuda
-    to avoid CUDA context conflicts on Jetson.
+    Uses ctypes to call CUDA runtime directly (libcudart.so), avoiding
+    dependency on cuda-python or pycuda packages.
     """
 
     def __init__(self, engine_path):
         import tensorrt as trt
-        from cuda import cudart  # TensorRT's bundled CUDA runtime
+        import ctypes
 
         self.trt = trt
-        self.cudart = cudart
+        self.ctypes = ctypes
+
+        # Load CUDA runtime via ctypes (always available on Jetson)
+        try:
+            self._cudart = ctypes.CDLL("libcudart.so")
+        except OSError:
+            self._cudart = ctypes.CDLL("libcudart.so.12")
 
         self.logger = trt.Logger(trt.Logger.WARNING)
         print(f"  Loading TensorRT engine: {engine_path}")
@@ -150,11 +156,14 @@ class TRTClassifier:
 
         self.runtime = trt.Runtime(self.logger)
         self.engine = self.runtime.deserialize_cuda_engine(engine_data)
+        if self.engine is None:
+            raise RuntimeError("Failed to deserialize TensorRT engine")
         self.context = self.engine.create_execution_context()
 
-        # Create CUDA stream
-        err, self.stream = cudart.cudaStreamCreate()
-        assert err == cudart.cudaError_t.cudaSuccess, f"Stream create failed: {err}"
+        # Create CUDA stream via ctypes
+        self.stream = ctypes.c_void_p()
+        ret = self._cudart.cudaStreamCreate(ctypes.byref(self.stream))
+        assert ret == 0, f"cudaStreamCreate failed: {ret}"
 
         # Allocate host + device buffers
         self.inputs = []
@@ -173,15 +182,23 @@ class TRTClassifier:
             size = int(np.prod(shape))
             host_mem = np.empty(size, dtype=dtype)
 
-            # Allocate device memory
-            err, device_mem = cudart.cudaMalloc(host_mem.nbytes)
-            assert err == cudart.cudaError_t.cudaSuccess, f"cudaMalloc failed: {err}"
+            # Allocate device memory via ctypes
+            device_mem = ctypes.c_void_p()
+            ret = self._cudart.cudaMalloc(
+                ctypes.byref(device_mem), host_mem.nbytes
+            )
+            assert ret == 0, f"cudaMalloc failed: {ret}"
 
             # Set tensor address
-            self.context.set_tensor_address(name, device_mem)
+            self.context.set_tensor_address(name, device_mem.value)
 
             mode = self.engine.get_tensor_mode(name)
-            buf = {"host": host_mem, "device": device_mem, "shape": shape, "name": name}
+            buf = {
+                "host": host_mem,
+                "device": device_mem,
+                "shape": shape,
+                "name": name,
+            }
             if mode == trt.TensorIOMode.INPUT:
                 self.inputs.append(buf)
             else:
@@ -195,35 +212,35 @@ class TRTClassifier:
         Run inference on a preprocessed numpy array [1, 3, H, W] (float32).
         Returns class probabilities [num_classes].
         """
-        cudart = self.cudart
+        ctypes = self.ctypes
 
         # Flatten input and copy to host buffer
         flat = input_array.ravel().astype(np.float32)
         np.copyto(self.inputs[0]["host"][:len(flat)], flat)
 
-        # Host → Device
-        cudart.cudaMemcpyAsync(
+        # Host → Device (cudaMemcpyHostToDevice = 1)
+        self._cudart.cudaMemcpyAsync(
             self.inputs[0]["device"],
-            self.inputs[0]["host"].ctypes.data,
+            self.inputs[0]["host"].ctypes.data_as(ctypes.c_void_p),
             self.inputs[0]["host"].nbytes,
-            cudart.cudaMemcpyKind.cudaMemcpyHostToDevice,
+            1,  # cudaMemcpyHostToDevice
             self.stream,
         )
 
         # Execute
-        self.context.execute_async_v3(stream_handle=self.stream)
+        self.context.execute_async_v3(stream_handle=self.stream.value)
 
-        # Device → Host
-        cudart.cudaMemcpyAsync(
-            self.outputs[0]["host"].ctypes.data,
+        # Device → Host (cudaMemcpyDeviceToHost = 2)
+        self._cudart.cudaMemcpyAsync(
+            self.outputs[0]["host"].ctypes.data_as(ctypes.c_void_p),
             self.outputs[0]["device"],
             self.outputs[0]["host"].nbytes,
-            cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,
+            2,  # cudaMemcpyDeviceToHost
             self.stream,
         )
 
         # Sync
-        cudart.cudaStreamSynchronize(self.stream)
+        self._cudart.cudaStreamSynchronize(self.stream)
 
         # Softmax on output logits
         logits = self.outputs[0]["host"][:np.prod(self.outputs[0]["shape"])].reshape(
