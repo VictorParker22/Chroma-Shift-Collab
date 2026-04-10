@@ -1,0 +1,48 @@
+{
+  "subsystems": {
+    "camera": {
+      "description": "Multispectral camera and filter wheel telemetry",
+      "headers": [
+        "timestamp_utc", "zone_id",
+        "red_mean_dn", "red_exposure", "red_gain",
+        "nir_mean_dn", "nir_exposure", "nir_gain",
+        "frame_width", "frame_height"
+      ]
+    },
+    "weather": {
+      "description": "Onboard or cached weather observations",
+      "headers": [
+        "cloud_cover_pct", "temp_c", "humidity_pct",
+        "wind_speed_ms", "precip_1h_mm"
+      ]
+    },
+    "system_health": {
+      "description": "Spacecraft housekeeping telemetry",
+      "headers": [
+        "cpu_temp_c", "storage_used_gb", "uptime_seconds",
+        "operating_mode"
+      ]
+    }
+  },
+  "order": [
+    "timestamp_utc",
+    "zone_id",
+    "red_mean_dn",
+    "red_exposure",
+    "red_gain",
+    "nir_mean_dn",
+    "nir_exposure",
+    "nir_gain",
+    "frame_width",
+    "frame_height",
+    "cloud_cover_pct",
+    "temp_c",
+    "humidity_pct",
+    "wind_speed_ms",
+    "precip_1h_mm",
+    "cpu_temp_c",
+    "storage_used_gb",
+    "uptime_seconds",
+    "operating_mode"
+  ]
+}
