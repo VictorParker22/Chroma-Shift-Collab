@@ -1,48 +1,45 @@
-# 🌿 Chroma-Shift
+# Chroma-Shift
 
-**Self-Calibrating Multispectral Vegetation Monitoring with Edge-to-Cloud AI**
+**Self-Calibrating Multispectral Vegetation Monitoring for SmallSat Deployment**
 
-Chroma-Shift is an autonomous crop stress detection system that combines multispectral imaging (Red + NIR), a 7-layer self-calibrating radiometric correction pipeline, 4-class DINOv2 on-device classification (149 FPS via TensorRT), a cloud-hosted 90B Vision-Language Model, confidence threshold cross-checking, adaptive observation scheduling, and real-time weather correlation — all orchestrated from an NVIDIA Jetson Orin Nano.
+Chroma-Shift is an autonomous crop stress detection system that combines multispectral imaging (Red + NIR), a 7-layer self-calibrating radiometric correction pipeline, 4-class DINOv2 on-device classification (149 FPS via TensorRT), a cloud-hosted 90B Vision-Language Model, confidence threshold cross-checking, adaptive observation scheduling, and real-time weather correlation.
+
+The system is architected to run within NASA's **OnAIR** cognitive architecture framework atop the **Core Flight System (cFS)**, enabling direct portability from the Jetson Orin Nano prototype to SmallSat flight processors. See `PROJECT.md` for full architecture details.
 
 Built for the **NASA Space Apps Challenge**.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
+
+The pipeline follows OnAIR's sense-perceive-act cognitive architecture:
 
 ```
-  ┌─────────────────┐     ┌──────────────┐     ┌────────────────┐
-  │ Arducam Multi-  │────▶│  Filter Wheel │────▶│  Red + NIR     │
-  │ spectral Camera │     │  (EFW Mini)   │     │  Image Pair    │
-  └─────────────────┘     └──────────────┘     └───────┬────────┘
-                                                        │
-                        ┌───────────────────────────────┘
-                        ▼
-            ┌───────────────────────┐
-            │  7-Layer Radiometric  │──── Self-calibrating, panel-free
-            │  Correction Pipeline  │     109/109 tests passing
-            │  (radiometric.py)     │
-            └──────────┬────────────┘
-                       │
-          ┌────────────┼────────────────────────┐
-          ▼            ▼                         ▼
-┌──────────────┐ ┌───────────────┐      ┌──────────────────┐
-│ NDVI Compute │ │ DINOv2 ViT-S  │      │  NVIDIA NIM      │
-│ (per-pixel)  │ │ TensorRT FP16 │      │  Cloud VLM       │
-│              │ │ 8.7ms/frame   │      │  Llama 90B (5.6s)│
-└──────┬───────┘ └──────┬────────┘      └───────┬──────────┘
-       │                │                        │
-       └────────────────┼────────────────────────┘
-                        ▼
-            ┌───────────────────────┐     ┌──────────────┐
-            │  Weather Correlation  │◀────│  NWS API     │
-            │  + Kalman Filter      │     │  (KNYC)      │
-            └──────────┬────────────┘     └──────────────┘
-                       │
-            ┌──────────▼────────────┐
-            │    Supabase Cloud     │──── NDVI, alerts, weather, VLM logs
-            │    + Live Dashboard   │
-            └───────────────────────┘
+cFS Software Bus (or CSV simulation)
+  |
+  v
+Data Adapter (sense)
+  |
+  +-- PKR: Radiometric Corrector -----> 7-layer correction pipeline
+  |     core/radiometric.py               (Chavez, Kasten, Kalman, PIF)
+  |
+  +-- PKR: Scene Analyzer ------------> VILA VLM or heuristic fallback
+  |     core/vila_analyzer.py             (4-mode priority chain)
+  |
+  +-- Learner: Vegetation Classifier -> DINOv2 ViT-S/14 TensorRT FP16
+  |                                       (4-class, 6.7ms/frame)
+  |
+  +-- Learner: Anomaly Detector ------> Sensor drift, stuck values
+  |     core/fault_tolerance.py           (FULL > REDUCED > SAFE > EMERGENCY)
+  |
+  +-- Planner: Observation Scheduler -> Adaptive capture interval
+  |     core/adaptive_sensing.py          (120-1800s, 8-signal priority)
+  |
+  +-- Planner: Crop Advisor ----------> Farmer advisory generation
+  |     core/crop_advisor.py
+  |
+  +-- Complex Reasoner: Mission ------> Stress alerts, downlink priority,
+        Executive                         mode management, triage logging
 ```
 
 ### Edge-to-Cloud AI Split
@@ -60,7 +57,7 @@ Built for the **NASA Space Apps Challenge**.
 
 ---
 
-## 🔬 Hardware
+## Hardware
 
 | Component | Model | Purpose |
 |-----------|-------|---------|
@@ -72,65 +69,94 @@ Built for the **NASA Space Apps Challenge**.
 
 ---
 
-## 📊 7-Layer Self-Calibrating Pipeline
+## 7-Layer Self-Calibrating Pipeline
 
-The core innovation — converts raw camera values to scientifically comparable NDVI readings without calibration panels:
+The core innovation -- converts raw camera values to scientifically comparable NDVI readings without calibration panels:
 
 | Layer | Method | What it Corrects | Citation |
 |-------|--------|-----------------|----------|
-| 1 | Auto-Exposure Normalization | Camera gain/exposure drift | — |
+| 1 | Auto-Exposure Normalization | Camera gain/exposure drift | -- |
 | 2 | Dark Object Subtraction | Atmospheric haze + sensor offset | Chavez 1988 |
 | 3 | Solar Zenith Correction | Sun angle illumination changes | Spencer 1971 |
 | 4 | Cloud Transmittance Model | Cloud-induced irradiance drop | Kasten & Czeplak 1980 |
 | 5 | **Inter-Frame PIF Matching** | Illumination change between captures | **Novel** |
-| 6 | Seasonal Phenology Baseline | Normal dormancy cycles | NASA HLS 2019–2023 |
-| 7 | Kalman Temporal Filter | Noise + transient artifacts | — |
+| 6 | Seasonal Phenology Baseline | Normal dormancy cycles | NASA HLS 2019-2023 |
+| 7 | Kalman Temporal Filter | Noise + transient artifacts | -- |
 
-**Validated with 109 automated tests** covering edge cases, seasonal coverage, cross-layer interactions, and known-input consistency.
-
----
-
-## 📁 Project Structure
-
-```
-Chroma-Shift/
-├── jetson_main.py              # Main scan loop (capture → correct → classify → upload)
-├── radiometric.py              # 7-layer self-calibrating correction pipeline
-├── crop_advisor.py             # Context-aware farmer advisory system
-├── triage_log.py               # Autonomous decision triage logger (NASA audit)
-├── field_validate.py           # Field validation against NASA baselines
-├── vila_analyzer.py            # Cloud VLM scene analyzer (4-mode priority chain)
-├── adaptive_sensing.py         # Adaptive observation scheduler (8-signal)
-├── fault_tolerance.py          # Watchdog, safe mode, self-test, anomaly detection
-├── weather.py                  # NWS API + NDVI-weather stress correlation
-├── push_to_supabase.py         # Supabase database utilities
-├── dashboard.html              # Real-time monitoring dashboard
-│
-├── train_finetune_gpu.py       # DINOv2 full fine-tuning (RTX 4070 desktop, 4-class)
-├── train_dinov2_v2.py          # DINOv2 linear probe training (Jetson, 8GB safe)
-├── evaluate_model.py           # Confusion matrix + per-class metrics
-├── build_dataset.py            # Dataset pipeline (PlantVillage + field augmentation)
-├── build_multiclass_dataset.py # 4-class dataset builder (NDVI split + EuroSAT)
-├── export_and_infer.py         # ONNX export + inference (auto-detects 2/4 class)
-├── convert_tensorrt.py         # TensorRT FP16 engine builder (4-class, 149 FPS)
-│
-├── SCIENTIFIC_AUDIT.md         # Pipeline audit + layer scoring (8.0/10)
-├── TICKETS.md                  # Improvement tickets (Sprint 1 complete)
-├── TECHNICAL_REPORT.md         # Full technical report
-├── CHALLENGE_PAPER.md          # 5-page competition paper
-├── VIDEO_SCRIPT.md             # 3-minute video script
-│
-├── figures/                    # Paper figures (architecture, confusion matrix, bandwidth)
-├── triage_logs/                # Autonomous triage decision logs
-├── validation_reports/         # Field validation evidence reports
-├── ndvi_central_park.csv       # Ground-truth NDVI baseline (296 obs, 2019-2023)
-├── results/                    # Training results + TensorRT engines
-└── lib/                        # ZWO SDK libraries (ARM64)
-```
+Validated with 109 automated tests covering edge cases, seasonal coverage, cross-layer interactions, and known-input consistency.
 
 ---
 
-## 🧠 AI Models
+## Project Structure
+
+```
+chroma-shift/
+|
+|-- driver.py                    # OnAIR pipeline entry point
+|-- onair_config.ini             # OnAIR plugin configuration
+|-- telemetry_metadata.json      # Telemetry frame schema (19 fields)
+|
+|-- onair_plugins/               # OnAIR cognitive architecture plugins
+|   |-- data_adapter/            #   CSV simulation / cFS SBN dual-mode
+|   |   |-- chroma_shift_adapter.py
+|   |   |-- sim_data/            #   296-frame simulation from NASA HLS
+|   |-- knowledge_rep/           #   Knowledge Representation tier
+|   |   |-- radiometric_pkr/     #     7-layer correction pipeline wrapper
+|   |   |-- scene_analysis_pkr/  #     VILA VLM / heuristic wrapper
+|   |-- learners/                #   Learner tier
+|   |   |-- vegetation_classifier/  # DINOv2 TRT/PyTorch/heuristic
+|   |   |-- anomaly_detector/    #     Sensor health + fault management
+|   |-- planners/                #   Planner tier
+|   |   |-- observation_scheduler/  # Adaptive capture interval
+|   |   |-- crop_advisor_pp/     #     Farmer advisory generation
+|   |-- complex_reasoners/       #   Complex Reasoner tier
+|       |-- mission_executive/   #     Executive decision-maker
+|
+|-- core/                        # Science modules (unchanged from original)
+|   |-- radiometric.py           #   7-layer radiometric correction (715 lines)
+|   |-- vila_analyzer.py         #   VLM scene analysis, 4-mode fallback (594 lines)
+|   |-- adaptive_sensing.py      #   Adaptive observation scheduler (334 lines)
+|   |-- fault_tolerance.py       #   Watchdog, mode degradation, anomaly (706 lines)
+|   |-- weather.py               #   NWS API integration (283 lines)
+|   |-- crop_advisor.py          #   Farmer advisory system (564 lines)
+|
+|-- services/                    # Ground-facing services
+|   |-- push_to_supabase.py      #   Cloud database push utilities
+|   |-- triage_log.py            #   Autonomous decision logging
+|   |-- field_validate.py        #   NASA satellite baseline validation
+|
+|-- hardware/                    # Hardware abstraction layer
+|   |-- camera_capture.py        #   FilterWheel, camera, NDVI computation
+|   |-- system_health.py         #   CPU temp, storage, uptime telemetry
+|   |-- cfs_app_stubs/           #   CCSDS message headers for cFS apps
+|       |-- camera_app_msg.h     #     MID 0x0880: camera telemetry
+|       |-- health_app_msg.h     #     MID 0x0881: housekeeping
+|
+|-- training/                    # Offline ML pipeline
+|   |-- train_dinov2.py          #   DINOv2 linear probe (Jetson, 8GB safe)
+|   |-- train_finetune_gpu.py    #   Full fine-tune (RTX 4070, 4-class)
+|   |-- convert_tensorrt.py      #   TensorRT FP16 engine builder
+|   |-- build_dataset.py         #   Dataset pipeline (PlantVillage + field)
+|   |-- evaluate_model.py        #   Confusion matrix + per-class metrics
+|   |-- ...                      #   (12 scripts total)
+|
+|-- standalone/                  # Legacy standalone scripts
+|   |-- jetson_main.py           #   Original monolithic entry point
+|   |-- capture_multispectral_pair.py
+|   |-- rapid_capture.py
+|
+|-- lib/                         # ZWO SDK libraries (ARM64)
+|-- results/                     # Trained models + TensorRT engines
+|-- dashboard.html               # Real-time Supabase-backed web dashboard
+|-- ndvi_central_park.csv        # NASA HLS ground truth (296 obs, 2019-2023)
+|-- triage_logs/                 # Autonomous decision logs (JSONL)
+|-- validation_reports/          # Field validation evidence
+|-- figures/                     # Architecture diagram, confusion matrix
+```
+
+---
+
+## AI Models
 
 ### DINOv2 Image Classifier (On-Device)
 
@@ -156,9 +182,9 @@ Chroma-Shift/
 
 ---
 
-## 🛡️ Fault Tolerance (Space-Grade)
+## Fault Tolerance (Space-Grade)
 
-The system never fully stops — it degrades gracefully:
+The system never fully stops -- it degrades gracefully:
 
 | Mode | Trigger | Active Systems | Power |
 |------|---------|---------------|-------|
@@ -167,79 +193,86 @@ The system never fully stops — it degrades gracefully:
 | **Safe** | 5 consecutive errors | NDVI-only (no AI, no cloud) | 3.5W |
 | **Emergency** | 10 consecutive errors | Log-only, minimal power | 2W |
 
-**Subsystems:**
-- **Watchdog** — Auto-restarts if main loop hangs for 120s
-- **Self-Test** — 8-component boot verification (GPU, TRT, Supabase, weather, disk, radiometric)
-- **Anomaly Detection** — Stuck sensors, black/saturated frames, sensor drift, NDVI out-of-range
-- **Remote Config** — Ground control overrides via Supabase (scan interval, force safe mode)
-- **Error Telemetry** — Every error pushed to Supabase for remote diagnostics
-- **Auto-Recovery** — Upgrades operating mode after 5 min of clean operation
+Subsystems: Watchdog (120s timeout), 8-component boot self-test, anomaly detection (stuck sensors, drift, out-of-range), remote config via Supabase, auto-recovery after 5 min clean operation.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### Prerequisites
+### Option 1: OnAIR Pipeline (Recommended)
 
-- NVIDIA Jetson Orin Nano (JetPack 6.x / R36.4)
-- Docker + NVIDIA Container Runtime
-- Arducam Multispectral Camera + EFW filter wheel
-- Python 3.10+
-
-### 1. Clone & Setup
+Run the full sense-perceive-act pipeline using 296 NASA satellite observation frames:
 
 ```bash
-git clone https://github.com/VictorParker22/Chroma-Shift.git
-cd Chroma-Shift
-cp .env.example .env
-```
+git clone https://github.com/VictorParker22/Chroma-Shift-Collab.git
+cd Chroma-Shift-Collab
+pip install numpy
 
-### 2. Configure `.env`
-
-```bash
-# Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-service-role-key
-
-# Cloud VLM (NVIDIA NIM)
-NVIDIA_NIM_API_KEY=nvapi-your-key-here
-
-# Optional: Local VILA container
-# VILA_API_URL=http://localhost:8050
-```
-
-### 3. Train DINOv2
-
-```bash
-python3 build_dataset.py
-python3 train_dinov2_v2.py \
-    --data-dir ./data \
-    --results-dir ./results/dino_v2_classify
-python3 convert_tensorrt.py  # Build TensorRT FP16 engine
-```
-
-### 4. Run Live Monitoring
-
-```bash
-python3 jetson_main.py --zone T1 --interval 600
+# Run standalone mode (no OnAIR framework installation needed)
+python3 driver.py --standalone
 ```
 
 Output:
 ```
-═══ Cycle 1 ═════════════════════════════════════════════
-  🌐 NVIDIA NIM Cloud VLM: meta/llama-3.2-90b-vision-instruct
-  🌤️  Weather: 6.1°C, 42.9% RH, Clear
-  [16:30:00] Scanning B3 (Great Lawn)
-  📡 VLM: 80% vegetation, uniform illumination, conf 0.8
-  🔬 7-layer correction applied (109 validations)
-  NDVI=0.2913 (seasonal baseline 0.404) → 🟡 28% below
-  🤖 DINOv2: healthy_vegetation (90.4% confidence, 6.7ms)
-  ⏱️  Adaptive: next scan in 568s, priority 0.43
+  Chroma-Shift OnAIR Pipeline — Standalone Mode
+
+  Data source: ChromaShiftAdapter(frames=296, headers=19, index=0)
+  Plugins initialized:
+    PKR: radiometric, scene_analysis
+    PL:  vegetation_classifier, anomaly_detector
+    PP:  observation_scheduler, crop_advisor
+    PCR: mission_executive
+
+  Frame   1 | Zone T1  | NDVI +0.5044 | healthy  | AI: stressed_vegetation    | Mode: full
+  Frame   7 | Zone C1  | NDVI +0.3357 | watch    | AI: bare_soil              | Mode: full << ALERT
+  ...
+  Pipeline complete: 296 frames processed, 92 alerts generated
+  Triage log: triage_logs/onair_sim_296frames.jsonl
+```
+
+### Option 2: Live Jetson Monitoring
+
+For deployment on the Jetson Orin Nano with actual hardware:
+
+```bash
+cp .env.example .env
+# Edit .env with Supabase and NVIDIA NIM credentials
+
+# Train the classifier
+python3 training/build_dataset.py
+python3 training/train_dinov2_v2.py --data-dir ./data --results-dir ./results/dino_v2_classify
+python3 training/convert_tensorrt.py
+
+# Run live monitoring
+python3 standalone/jetson_main.py --zone T1 --interval 600
+```
+
+### Option 3: With OnAIR Framework
+
+```bash
+pip install onair   # or: git clone https://github.com/nasa/OnAIR.git
+python3 driver.py onair_config.ini
 ```
 
 ---
 
-## 📊 NDVI Baseline
+## cFS Integration
+
+The OnAIR plugin structure is designed for integration with NASA's Core Flight System via the Software Bus Network (SBN). Three cFS applications are planned:
+
+| App | MID | Publishes |
+|-----|-----|-----------|
+| CHROMA_CAM_APP | 0x0880 | Red/NIR frame metadata after each capture |
+| CHROMA_HEALTH_APP | 0x0881 | System housekeeping at 1 Hz |
+| CHROMA_WX_APP | 0x0882 | Weather/environmental sensor data |
+
+Integration path: `cFS App -> Software Bus -> SBN -> SBN-Client (TCP:1234) -> OnAIR`
+
+CCSDS message header stubs are in `hardware/cfs_app_stubs/`. Set `SBN_FLAG = 1` in `onair_config.ini` to switch from CSV simulation to cFS flight mode.
+
+---
+
+## NDVI Baseline
 
 Ground-truth from **296 clear-sky observations** of Central Park via NASA HLS (2019-2023):
 
@@ -250,11 +283,11 @@ Ground-truth from **296 clear-sky observations** of Central Park via NASA HLS (2
 | March Seasonal | ~0.25 |
 | August Peak | ~0.74 |
 | Source | NASA HLS L30/S30 |
-| Location | 40.7829°N, 73.9654°W |
+| Location | 40.7829 N, 73.9654 W |
 
 ---
 
-## 🌤️ Weather Integration
+## Weather Integration
 
 Real-time weather from the **NWS API** (Central Park / KNYC):
 
@@ -265,7 +298,7 @@ Real-time weather from the **NWS API** (Central Park / KNYC):
 
 ---
 
-## 🗄️ Supabase Schema
+## Supabase Schema
 
 | Table | Purpose |
 |-------|---------|
@@ -277,14 +310,14 @@ Real-time weather from the **NWS API** (Central Park / KNYC):
 
 ---
 
-## 📜 License
+## License
 
 MIT
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- **NASA** — Harmonized Landsat Sentinel-2 data
-- **Meta AI** — DINOv2 foundation model
-- **NVIDIA** — Jetson platform, NIM cloud inference, TensorRT
-- **PlantVillage** — Plant disease dataset
-- **National Weather Service** — Real-time weather API
+- **NASA** -- Harmonized Landsat Sentinel-2 data, Core Flight System, OnAIR framework
+- **Meta AI** -- DINOv2 foundation model
+- **NVIDIA** -- Jetson platform, NIM cloud inference, TensorRT
+- **PlantVillage** -- Plant disease dataset
+- **National Weather Service** -- Real-time weather API
