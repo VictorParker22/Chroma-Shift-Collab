@@ -1,5 +1,25 @@
 # Chroma-Shift
 
+## CRITICAL: OnAIR and cFS Reference Policy
+
+**When working on anything related to OnAIR plugin structure, interfaces, configuration, or cFS integration — always consult the authoritative documentation BEFORE making assumptions or writing code. This is mandatory to avoid hallucinations about API contracts, plugin interfaces, and cFS conventions.**
+
+| Concern | Source |
+|---------|--------|
+| OnAIR plugin interfaces, data flow, config format, adapter contracts | https://github.com/nasa/OnAIR/tree/main/doc |
+| cFS Software Bus, CCSDS packets, SBN, app structure | https://github.com/nasa/cFS/wiki |
+
+This applies especially when:
+- Debugging errors in OnAIR plugins (`update()`, `render_reasoning()`, `get_next()`, `has_more()`)
+- Writing or modifying `onair_config.ini` or `telemetry_metadata.json`
+- Implementing or changing the data adapter
+- Adding cFS app stubs or SBN integration
+- Any situation where the correct behavior of an OnAIR or cFS interface is unclear
+
+Do not guess at method signatures, return types, configuration keys, or CCSDS field conventions. Fetch the docs first.
+
+---
+
 Autonomous multispectral vegetation monitoring system targeting SmallSat deployment. Captures Red + NIR imagery through a motorized filter wheel, applies a 7-layer radiometric correction pipeline, classifies vegetation health with DINOv2 (TensorRT FP16), and downlinks telemetry. Prototyped on NVIDIA Jetson Orin Nano (8GB).
 
 See `PROJECT.md` for the full directory structure, plugin specifications, and cFS integration details.
