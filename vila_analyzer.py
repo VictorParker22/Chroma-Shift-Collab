@@ -56,7 +56,7 @@ CLASSES = ["bare_soil", "healthy_vegetation", "non_vegetation", "stressed_vegeta
 # System Prompt — instructs VILA on how to analyze multispectral scenes
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """You are an expert agricultural remote sensing analyst embedded in an autonomous vegetation monitoring system. You analyze multispectral camera captures (Red band ~665nm, Near-Infrared band ~850nm) taken from a ground-level monitoring station in Central Park, NYC.
+SYSTEM_PROMPT = """You are an expert agricultural remote sensing analyst embedded in an autonomous vegetation monitoring system. You analyze multispectral camera captures (Red band ~665nm, Near-Infrared band ~865nm) taken from a ground-level monitoring station in Central Park, NYC.
 
 Your job is to analyze the scene and output a JSON object with radiometric correction parameters and a natural-language explanation. You must be precise and scientific.
 
@@ -266,7 +266,7 @@ class VilaSceneAnalyzer:
 
         user_text = (
             f"This is a side-by-side multispectral image pair from an agricultural monitoring camera. "
-            f"Left half is the Red band (665nm), right half is the NIR band (850nm). "
+            f"Left half is the Red band (665nm), right half is the NIR band (865nm). "
             f"Current conditions: {context_str}. "
             f"Analyze the scene and output ONLY valid JSON with these fields: "
             f'{{"vegetation_pct": 0-100, "soil_pct": 0-100, "artificial_pct": 0-100, '
@@ -436,7 +436,7 @@ class VilaSceneAnalyzer:
         combined = np.hstack([red_vis, nir_vis])
         cv2.putText(combined, "RED (665nm)", (10, 30),
                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        cv2.putText(combined, "NIR (850nm)", (w + 10, 30),
+        cv2.putText(combined, "NIR (865nm)", (w + 10, 30),
                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 0), 2)
 
         pil_image = Image.fromarray(cv2.cvtColor(combined, cv2.COLOR_BGR2RGB))

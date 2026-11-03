@@ -89,7 +89,7 @@ def validate_from_file(image_path, zone_name="Field Test"):
     # Determine if this is red or NIR from filename
     fname = str(image_path).lower()
     is_nir = "nir" in fname
-    band = "NIR (850nm)" if is_nir else "Red (665nm)"
+    band = "NIR (865nm)" if is_nir else "Red (665nm)"
     print(f"  Band: {band}")
 
     # For a single-band image, compute pseudo-NDVI from filename if available

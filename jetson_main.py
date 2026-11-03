@@ -95,12 +95,13 @@ FIELD_ZONES = {
 }
 
 # Filter band lookup
+# Installed hardware as of Nov 2026. The EFW Mini has 5 slots; only slot 2
+# holds a filter. Slot 1 (Red 665nm bandpass) is on order. Slots 0, 3, 4 are
+# empty. Red-Edge and SWIR are NOT possible on this silicon sensor and were
+# removed from this table after an audit found them added by an AI assistant.
 FILTER_BANDS = {
-    0: ("Clear",     "400-700"),
-    1: ("Red",       "640-670"),
-    2: ("NIR",       "850-880"),
-    3: ("Red-Edge",  "700-740"),
-    4: ("SWIR",      "1570-1650"),
+    1: ("Red",  "665"),    # planned - filter on order, slot currently empty
+    2: ("NIR",  "865"),    # installed
 }
 
 # Stress thresholds

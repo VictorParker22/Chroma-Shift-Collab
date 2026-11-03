@@ -65,12 +65,10 @@ FIELD_ZONES = {
 }
 
 # Filter wheel slot mapping
+# Installed hardware only. See jetson_main.FILTER_BANDS for the audit note.
 FILTER_BANDS = {
-    0: {"name": "Clear",     "wavelength": "400-700 nm"},
-    1: {"name": "Red",       "wavelength": "640-670 nm"},
-    2: {"name": "NIR",       "wavelength": "850-880 nm"},
-    3: {"name": "Red-Edge",  "wavelength": "700-740 nm"},
-    4: {"name": "SWIR",      "wavelength": "1570-1650 nm"},
+    1: {"name": "Red",  "wavelength": "665 nm"},   # planned - filter on order
+    2: {"name": "NIR",  "wavelength": "865 nm"},   # installed
 }
 
 # Stress thresholds (NDVI drop from baseline)

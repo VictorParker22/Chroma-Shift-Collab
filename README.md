@@ -1,4 +1,4 @@
-# 🌿 Chroma-Shift
+# Chroma-Shift
 
 **Self-Calibrating Multispectral Vegetation Monitoring with Edge-to-Cloud AI**
 
@@ -6,9 +6,27 @@ Chroma-Shift is an autonomous crop stress detection system that combines multisp
 
 Built for the **NASA Space Apps Challenge**.
 
+![DINOv2 4-class confusion matrix](figures/confusion_matrix.png)
+
+## Hardware reality
+
+This section exists because an AI coding assistant once wrote Red-Edge and SWIR filter slots into this codebase. Neither exists on the hardware, and SWIR is physically impossible on a silicon sensor. I audited every file and removed them. What is actually installed as of November 2026:
+
+| Slot | Filter | Status |
+|------|--------|--------|
+| 1 | Red 665nm bandpass | On order, slot empty |
+| 2 | NIR 865nm bandpass | Installed |
+| 0, 3, 4 | none | Empty |
+
+Until the red filter arrives, field NDVI runs on NIR plus the camera's unfiltered red channel. Numbers in `validation_reports/` reflect that setup.
+
+## How this was built
+
+I built this solo as project lead. AI coding assistants wrote a meaningful share of the first-draft code under my direction; `.agent/workflows/` holds the instructions I gave them. Every claim about hardware, latency, and accuracy in this README was checked by me by running it on the Jetson.
+
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```
   ┌─────────────────┐     ┌──────────────┐     ┌────────────────┐
@@ -20,7 +38,7 @@ Built for the **NASA Space Apps Challenge**.
                         ▼
             ┌───────────────────────┐
             │  7-Layer Radiometric  │──── Self-calibrating, panel-free
-            │  Correction Pipeline  │     109/109 tests passing
+            │  Correction Pipeline  │     see Testing section
             │  (radiometric.py)     │
             └──────────┬────────────┘
                        │
@@ -29,7 +47,7 @@ Built for the **NASA Space Apps Challenge**.
 ┌──────────────┐ ┌───────────────┐      ┌──────────────────┐
 │ NDVI Compute │ │ DINOv2 ViT-S  │      │  NVIDIA NIM      │
 │ (per-pixel)  │ │ TensorRT FP16 │      │  Cloud VLM       │
-│              │ │ 8.7ms/frame   │      │  Llama 90B (5.6s)│
+│              │ │ 6.7ms/frame   │      │  Llama 90B (5.6s)│
 └──────┬───────┘ └──────┬────────┘      └───────┬──────────┘
        │                │                        │
        └────────────────┼────────────────────────┘
@@ -60,19 +78,19 @@ Built for the **NASA Space Apps Challenge**.
 
 ---
 
-## 🔬 Hardware
+## Hardware
 
 | Component | Model | Purpose |
 |-----------|-------|---------|
 | Compute | NVIDIA Jetson Orin Nano 8GB | Edge AI inference (10W) |
 | Camera | Arducam Multispectral Camera | Red + NIR imaging |
-| Filter Wheel | ZWO EFW Mini (5-slot) | Band selection (665nm, 850nm) |
-| Filters | Red (665nm), NIR (850nm) | NDVI band pair |
+| Filter Wheel | ZWO EFW Mini (5-slot) | Band selection (665nm planned, 865nm) |
+| Filters | NIR 865nm (installed, slot 2); Red 665nm (on order, slot 1) | NDVI band pair |
 | Storage | 1TB NVMe | Dataset & model storage |
 
 ---
 
-## 📊 7-Layer Self-Calibrating Pipeline
+## 7-Layer Self-Calibrating Pipeline
 
 The core innovation — converts raw camera values to scientifically comparable NDVI readings without calibration panels:
 
@@ -86,11 +104,20 @@ The core innovation — converts raw camera values to scientifically comparable 
 | 6 | Seasonal Phenology Baseline | Normal dormancy cycles | NASA HLS 2019–2023 |
 | 7 | Kalman Temporal Filter | Noise + transient artifacts | — |
 
-**Validated with 109 automated tests** covering edge cases, seasonal coverage, cross-layer interactions, and known-input consistency.
+### Testing
+
+Two suites. Only the first is in this repo today.
+
+| Suite | Where | What it covers |
+|-------|-------|----------------|
+| `test_pipeline.py` | this repo | 6 groups, 44 checks on a real field capture: seasonal baseline, solar position, Kalman filter, full 7-layer pipeline, temperature scaling, hardware watchdog |
+| `test_radiometric.py` | on the Jetson, not yet committed | 109 assertions on radiometric.py: edge cases, seasonal coverage, cross-layer interactions, known-input consistency |
+
+Run the first with `python3 test_pipeline.py`. The second will be added once it is cleaned of local paths.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Chroma-Shift/
@@ -130,7 +157,7 @@ Chroma-Shift/
 
 ---
 
-## 🧠 AI Models
+## AI Models
 
 ### DINOv2 Image Classifier (On-Device)
 
@@ -156,7 +183,7 @@ Chroma-Shift/
 
 ---
 
-## 🛡️ Fault Tolerance (Space-Grade)
+## Fault Tolerance (Space-Grade)
 
 The system never fully stops — it degrades gracefully:
 
@@ -177,7 +204,7 @@ The system never fully stops — it degrades gracefully:
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -231,7 +258,7 @@ Output:
   🌤️  Weather: 6.1°C, 42.9% RH, Clear
   [16:30:00] Scanning B3 (Great Lawn)
   📡 VLM: 80% vegetation, uniform illumination, conf 0.8
-  🔬 7-layer correction applied (109 validations)
+  🔬 7-layer correction applied
   NDVI=0.2913 (seasonal baseline 0.404) → 🟡 28% below
   🤖 DINOv2: healthy_vegetation (90.4% confidence, 6.7ms)
   ⏱️  Adaptive: next scan in 568s, priority 0.43
@@ -239,7 +266,7 @@ Output:
 
 ---
 
-## 📊 NDVI Baseline
+## NDVI Baseline
 
 Ground-truth from **296 clear-sky observations** of Central Park via NASA HLS (2019-2023):
 
@@ -254,7 +281,7 @@ Ground-truth from **296 clear-sky observations** of Central Park via NASA HLS (2
 
 ---
 
-## 🌤️ Weather Integration
+## Weather Integration
 
 Real-time weather from the **NWS API** (Central Park / KNYC):
 
@@ -265,7 +292,7 @@ Real-time weather from the **NWS API** (Central Park / KNYC):
 
 ---
 
-## 🗄️ Supabase Schema
+## Supabase Schema
 
 | Table | Purpose |
 |-------|---------|
@@ -277,11 +304,11 @@ Real-time weather from the **NWS API** (Central Park / KNYC):
 
 ---
 
-## 📜 License
+## License
 
 MIT
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **NASA** — Harmonized Landsat Sentinel-2 data
 - **Meta AI** — DINOv2 foundation model

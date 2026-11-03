@@ -7,7 +7,7 @@ Captures a Red / NIR image pair using:
 
 Filter wheel slot mapping:
   Slot 1 → Red  (665 nm)
-  Slot 2 → NIR  (833 / 865 nm)
+  Slot 2 → NIR  (865 nm)
 
 Usage:
     python capture_multispectral_pair.py                  # interactive
@@ -35,7 +35,7 @@ EFW_LIB_PATH = os.path.join(LIB_DIR, "libEFWFilter.so")
 # ---------------------------------------------------------------------------
 CAMERA_INDEX = 0                     # /dev/video0 (USB Arducam)
 FILTER_SLOT_RED = 1                  # 665 nm band-pass
-FILTER_SLOT_NIR = 2                  # 833 / 865 nm band-pass
+FILTER_SLOT_NIR = 2                  # 865 nm band-pass
 SETTLE_TIME_SEC = 1.5                # mechanical settle after wheel rotation
 FLUSH_FRAMES = 5                     # frames to discard (clear USB buffer)
 EFW_POLL_INTERVAL = 0.3              # seconds between position polls
@@ -189,7 +189,7 @@ def capture_multispectral_pair(sample_name, cap, efw, output_dir=OUTPUT_DIR):
 
     paths = {}
     for label, slot in [("red_665nm", FILTER_SLOT_RED),
-                        ("nir_833nm", FILTER_SLOT_NIR)]:
+                        ("nir_865nm", FILTER_SLOT_NIR)]:
         # --- Rotate wheel ---
         efw.move_to(slot)
 
@@ -203,7 +203,7 @@ def capture_multispectral_pair(sample_name, cap, efw, output_dir=OUTPUT_DIR):
         print(f"  Saved → {filepath}")
         paths[label] = filepath
 
-    return paths["red_665nm"], paths["nir_833nm"]
+    return paths["red_665nm"], paths["nir_865nm"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -249,7 +249,7 @@ def main():
 
         print(f"\n[3/3] Capture complete ✅")
         print(f"  Red (665 nm) : {red_path}")
-        print(f"  NIR (833 nm) : {nir_path}\n")
+        print(f"  NIR (865 nm) : {nir_path}\n")
 
     finally:
         # --- Cleanup ---

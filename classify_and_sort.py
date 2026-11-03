@@ -185,12 +185,12 @@ def find_pairs(captures_dir=CAPTURES_DIR):
     """
     Discover Red/NIR image pairs in the captures directory.
     Pairs are matched by having identical prefixes with
-    _red_665nm.png and _nir_833nm.png suffixes.
+    _red_665nm.png and _nir_865nm.png suffixes.
     """
     red_files = sorted(glob.glob(os.path.join(captures_dir, "*_red_665nm.png")))
     pairs = []
     for red_path in red_files:
-        nir_path = red_path.replace("_red_665nm.png", "_nir_833nm.png")
+        nir_path = red_path.replace("_red_665nm.png", "_nir_865nm.png")
         if os.path.isfile(nir_path):
             # Extract sample name from filename
             basename = os.path.basename(red_path)
@@ -247,7 +247,7 @@ def main():
         help="Capture a new pair then classify (requires camera + EFW)."
     )
 
-    parser.add_argument("--nir", type=str, help="Path to the NIR (833nm) image (use with --red).")
+    parser.add_argument("--nir", type=str, help="Path to the NIR (865nm) image (use with --red).")
     parser.add_argument("--name", "-n", type=str, default=None, help="Sample name (for --capture mode).")
     parser.add_argument("--no-sort", action="store_true", help="Only compute NDVI; don't copy to dataset folders.")
 
@@ -316,7 +316,7 @@ def main():
             # Capture NIR
             efw.move_to(FILTER_SLOT_NIR)
             frame_nir = flush_and_capture(cap)
-            nir_path = os.path.join(CAP_DIR, f"{sample_name}_{timestamp}_nir_833nm.png")
+            nir_path = os.path.join(CAP_DIR, f"{sample_name}_{timestamp}_nir_865nm.png")
             cv2.imwrite(nir_path, frame_nir)
             print(f"  Saved NIR  → {nir_path}")
 
