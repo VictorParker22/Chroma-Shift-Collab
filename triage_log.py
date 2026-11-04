@@ -67,7 +67,7 @@ class TriageLogger:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "system": "Chroma-Shift Autonomous Crop Monitor",
             "hardware": "NVIDIA Jetson Orin Nano 8GB",
-            "model": "DINOv2 ViT-S/14 (99.95% validated)",
+            "model": "DINOv2 ViT-S/14, 4-class (93.94% validated)",
             "pipeline": "7-layer radiometric correction → NDVI → AI classify → advisory",
             "human_in_loop": False,
         }
@@ -149,7 +149,7 @@ class TriageLogger:
             # ─── 5. CLASSIFY: AI prediction ───
             "classify": {
                 "description": "DINOv2 ViT-S/14 TensorRT FP16 inference",
-                "model_accuracy": "99.95% validated on 1,837 samples",
+                "model_accuracy": "93.94% validated on 1,800 samples (4-class)",
                 "prediction": classification.get("class") if classification else None,
                 "confidence_pct": classification.get("confidence") if classification else None,
                 "probabilities": {

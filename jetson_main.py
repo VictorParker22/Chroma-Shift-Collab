@@ -95,10 +95,10 @@ FIELD_ZONES = {
 }
 
 # Filter band lookup
-# Installed hardware as of Nov 2026. The EFW Mini has 5 slots; only slot 2
-# holds a filter. Slot 1 (Red 665nm bandpass) is on order. Slots 0, 3, 4 are
-# empty. Red-Edge and SWIR are NOT possible on this silicon sensor and were
-# removed from this table after an audit found them added by an AI assistant.
+# Installed hardware only. Earlier versions listed Red-Edge and SWIR here: those
+# are Sentinel-2/Landsat bands from the calibration research, copied into this
+# table as if filters were installed. They were not (and the IMX477 cannot see
+# SWIR). Removed before the NASA submission. See README "Hardware reality".
 FILTER_BANDS = {
     1: ("Red",  "665"),    # planned - filter on order, slot currently empty
     2: ("NIR",  "865"),    # installed

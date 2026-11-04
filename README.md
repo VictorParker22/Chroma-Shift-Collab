@@ -8,23 +8,35 @@ Built for the **NASA Space Apps Challenge**.
 
 ![DINOv2 4-class confusion matrix](figures/confusion_matrix.png)
 
+## Paper
+
+The full write-up, with hypotheses, method, results and limitations, is [PAPER.md](PAPER.md): *Chroma-Shift: A Space-Ground Collaborative System for Adaptive Vegetation Monitoring with Onboard Radiometric Intelligence*. The main methodological contribution is Section 2.3, an NDVI-ratio pseudo-invariant-feature method for inter-frame calibration that converged on all 12 field sessions where the standard brightness-based method failed on 4.
+
+## Team
+
+Chroma-Shift started as a solo build. For the NASA Space to Soil 2026 submission it became a three-person team:
+
+| Person | Owned |
+|--------|-------|
+| Victor Parker, founder and mission director | Hardware architecture, TensorRT engine, radiometric correction math, technical paper, NASA point of contact |
+| Joshua | AI systems: pipeline reliability, edge optimization, model hardening; engineering onboarding in the dashboard |
+| Laurel | Biology: symptomatic library, ground-truth field audits, botanical diagnostics; botanist onboarding in the dashboard |
+
 ## Hardware reality
 
-This section exists because an AI coding assistant once wrote Red-Edge and SWIR filter slots into this codebase. Neither exists on the hardware, and SWIR is physically impossible on a silicon sensor. I audited every file and removed them. What is actually installed as of November 2026:
+Earlier versions of this codebase listed Red-Edge (700–740 nm) and SWIR (1570–1650 nm) as filter-wheel slots. Those are Sentinel-2 and Landsat bands from our calibration research, copied into the prototype's configuration by an AI assistant as if the filters were installed. They were not, and the IMX477 sensor cannot capture SWIR. I removed them before submission. What is actually in the wheel:
 
 | Slot | Filter | Status |
 |------|--------|--------|
-| 1 | Red 665nm bandpass | On order, slot empty |
-| 2 | NIR 865nm bandpass | Installed |
+| 1 | Red 665 nm bandpass | See note |
+| 2 | NIR bandpass | Installed |
 | 0, 3, 4 | none | Empty |
 
-Until the red filter arrives, field NDVI runs on NIR plus the camera's unfiltered red channel. Numbers in `validation_reports/` reflect that setup.
+Note: the paper lists Thorlabs FB665-10 and FB850-40. This README and the code currently say NIR 865 nm. One of the two is being corrected against the physical filter label.
 
 ## How this was built
 
-I built this solo as project lead. AI coding assistants wrote a meaningful share of the first-draft code under my direction; `.agent/workflows/` holds the instructions I gave them. Every claim about hardware, latency, and accuracy in this README was checked by me by running it on the Jetson.
-
----
+I built the original system alone, then led the team above for the NASA submission. AI coding assistants wrote a meaningful share of the first-draft code under my direction; `.agent/workflows/` holds the instructions I gave them. Every hardware, latency and accuracy figure in this README was checked by me on the Jetson. The current model is the 4-class DINOv2 (93.94% on 1,800 validation samples, 6.7 ms); figures of 99.95% or 8.7 ms in older files refer to the earlier binary model.
 
 ## System Architecture
 
