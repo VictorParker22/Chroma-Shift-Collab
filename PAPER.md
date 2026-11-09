@@ -1,6 +1,6 @@
 # Chroma-Shift: A Space-Ground Collaborative System for Adaptive Vegetation Monitoring with Onboard Radiometric Intelligence
 
-Victor Parker
+Victor Parker · [project story and field footage](https://claude.ai/artifact/M1TWL5F9Gug7xX83rFS61K) · [code](https://github.com/VictorParker22/Chroma-Shift-Collab)
 
 ---
 

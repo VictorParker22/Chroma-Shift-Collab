@@ -6,7 +6,7 @@ Chroma-Shift is an autonomous crop stress detection system that combines multisp
 
 Built for the **NASA Space Apps Challenge**.
 
-![DINOv2 4-class confusion matrix](figures/confusion_matrix.png)
+**The story behind it:** [Karmouz to the Jetson](https://claude.ai/artifact/M1TWL5F9Gug7xX83rFS61K), how a kid from Alexandria ended up building this, with field footage from Central Park.
 
 ## Paper
 
