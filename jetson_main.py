@@ -94,13 +94,16 @@ FIELD_ZONES = {
     "T1": {"name": "USS Maine Monument", "baseline": 0.6493},
 }
 
-# Filter band lookup
+# Filter band lookup.
+# The field unit carries a Red bandpass and a NIR filter. Slots 3 and 4 are
+# empty: Red-Edge is a future concept, and SWIR is outside what the silicon
+# sensor can see. Earlier versions listed Sentinel-2 bands here.
 FILTER_BANDS = {
     0: ("Clear",     "400-700"),
     1: ("Red",       "640-670"),
     2: ("NIR",       "850-880"),
-    3: ("Red-Edge",  "700-740"),
-    4: ("SWIR",      "1570-1650"),
+    3: ("Empty",     "-"),
+    4: ("Empty",     "-"),
 }
 
 # Stress thresholds

@@ -4,7 +4,7 @@
 
 Chroma-Shift is an autonomous crop stress detection system that combines multispectral imaging (Red + NIR), a 7-layer self-calibrating radiometric correction pipeline, 4-class DINOv2 on-device classification (149 FPS via TensorRT), a cloud-hosted 90B Vision-Language Model, confidence threshold cross-checking, adaptive observation scheduling, and real-time weather correlation — all orchestrated from an NVIDIA Jetson Orin Nano.
 
-Built for the **NASA Space Apps Challenge**.
+Built for the **NASA Space to Soil 2026** challenge by a three-person team (see [Team](#-team)). The full write-up is in [PAPER.md](PAPER.md), and recorded field data is on the [Chroma-Shift Field Monitor](https://chromashift.oryntlabs.co).
 
 ---
 
@@ -20,7 +20,7 @@ Built for the **NASA Space Apps Challenge**.
                         ▼
             ┌───────────────────────┐
             │  7-Layer Radiometric  │──── Self-calibrating, panel-free
-            │  Correction Pipeline  │     109/109 tests passing
+            │  Correction Pipeline  │     38 automated tests (paper §3.2)
             │  (radiometric.py)     │
             └──────────┬────────────┘
                        │
@@ -29,7 +29,7 @@ Built for the **NASA Space Apps Challenge**.
 ┌──────────────┐ ┌───────────────┐      ┌──────────────────┐
 │ NDVI Compute │ │ DINOv2 ViT-S  │      │  NVIDIA NIM      │
 │ (per-pixel)  │ │ TensorRT FP16 │      │  Cloud VLM       │
-│              │ │ 8.7ms/frame   │      │  Llama 90B (5.6s)│
+│              │ │ 6.7ms/frame   │      │  Llama 90B (5.6s)│
 └──────┬───────┘ └──────┬────────┘      └───────┬──────────┘
        │                │                        │
        └────────────────┼────────────────────────┘
@@ -86,7 +86,7 @@ The core innovation — converts raw camera values to scientifically comparable 
 | 6 | Seasonal Phenology Baseline | Normal dormancy cycles | NASA HLS 2019–2023 |
 | 7 | Kalman Temporal Filter | Noise + transient artifacts | — |
 
-**Validated with 109 automated tests** covering edge cases, seasonal coverage, cross-layer interactions, and known-input consistency.
+**Validated with 38 automated tests across six suites** (paper §3.2), covering individual layers, cross-layer integration on real field captures and synthetic frames, and edge cases found during development. Five more assertions in the confidence calibrator cross-check AI predictions against NDVI physics. The test suites live in the main development repository and are not part of this collaborator copy.
 
 ---
 
@@ -114,11 +114,7 @@ Chroma-Shift/
 ├── export_and_infer.py         # ONNX export + inference (auto-detects 2/4 class)
 ├── convert_tensorrt.py         # TensorRT FP16 engine builder (4-class, 149 FPS)
 │
-├── SCIENTIFIC_AUDIT.md         # Pipeline audit + layer scoring (8.0/10)
-├── TICKETS.md                  # Improvement tickets (Sprint 1 complete)
-├── TECHNICAL_REPORT.md         # Full technical report
-├── CHALLENGE_PAPER.md          # 5-page competition paper
-├── VIDEO_SCRIPT.md             # 3-minute video script
+├── PAPER.md                    # Full paper: method, results, limitations
 │
 ├── figures/                    # Paper figures (architecture, confusion matrix, bandwidth)
 ├── triage_logs/                # Autonomous triage decision logs
@@ -231,7 +227,7 @@ Output:
   🌤️  Weather: 6.1°C, 42.9% RH, Clear
   [16:30:00] Scanning B3 (Great Lawn)
   📡 VLM: 80% vegetation, uniform illumination, conf 0.8
-  🔬 7-layer correction applied (109 validations)
+  🔬 7-layer correction applied
   NDVI=0.2913 (seasonal baseline 0.404) → 🟡 28% below
   🤖 DINOv2: healthy_vegetation (90.4% confidence, 6.7ms)
   ⏱️  Adaptive: next scan in 568s, priority 0.43
@@ -276,6 +272,20 @@ Real-time weather from the **NWS API** (Central Park / KNYC):
 | `weather_data` | Correlated weather + NDVI observations |
 
 ---
+
+## 👥 Team
+
+Chroma-Shift began as a solo build by Victor Parker. For the NASA Space to Soil 2026 submission he assembled and led a three-person team:
+
+| Person | Role | Owned |
+|--------|------|-------|
+| Victor Parker | Founder and mission director | Original system, hardware architecture, TensorRT engine, radiometric correction math, the paper, NASA point of contact |
+| Joshua | AI systems lead | Pipeline reliability and model hardening |
+| Laurel | Biological lead (botanist) | Ground-truth field audits |
+
+## 📄 Paper
+
+[PAPER.md](PAPER.md) states four claims (downlink size, agreement with NASA HLS baselines, 4-class accuracy, power) and tests each against a $710 prototype, a 1,800-image held-out set and 296 clear-sky HLS observations. The main methodological result is in Section 2.3: in grass-dominated scenes the standard brightness-based calibration failed on 4 of 12 field sessions, while the NDVI-ratio pseudo-invariant feature method converged on all 12. Section 3.3 and the conclusion list the limits of a 12-session, single-season test.
 
 ## 📜 License
 
