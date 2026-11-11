@@ -64,16 +64,14 @@ FIELD_ZONES = {
     "C1": {"name": "West Terrace",   "baseline_ndvi": 0.69},
 }
 
-# Filter wheel slot mapping.
-# The field unit carries a Red bandpass and a NIR filter. Slots 3 and 4 are
-# empty: Red-Edge is a future concept, and SWIR is outside what the silicon
-# sensor can see. Earlier versions listed Sentinel-2 bands here.
+# Filter wheel slot mapping
+# Installed hardware only. See jetson_main.FILTER_BANDS for the audit note.
 FILTER_BANDS = {
-    0: {"name": "Clear",     "wavelength": "400-700 nm"},
-    1: {"name": "Red",       "wavelength": "640-670 nm"},
-    2: {"name": "NIR",       "wavelength": "850-880 nm"},
-    3: {"name": "Empty",     "wavelength": "-"},
-    4: {"name": "Empty",     "wavelength": "-"},
+    0: {"name": "Clear", "wavelength": "400-700 nm"},
+    1: {"name": "Red slot, no filter", "wavelength": "broadband"},
+    2: {"name": "NIR",   "wavelength": "865 nm"},
+    3: {"name": "Empty", "wavelength": "-"},
+    4: {"name": "Empty", "wavelength": "-"},
 }
 
 # Stress thresholds (NDVI drop from baseline)

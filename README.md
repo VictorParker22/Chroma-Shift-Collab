@@ -1,4 +1,4 @@
-# 🌿 Chroma-Shift
+# Chroma-Shift
 
 **Self-Calibrating Multispectral Vegetation Monitoring with Edge-to-Cloud AI**
 
@@ -6,9 +6,39 @@ Chroma-Shift is an autonomous crop stress detection system that combines multisp
 
 Built for the **NASA Space to Soil 2026** challenge by a three-person team (see [Team](#-team)). The full write-up is in [PAPER.md](PAPER.md), and recorded field data is on the [Chroma-Shift Field Monitor](https://chromashift.oryntlabs.co).
 
----
+**The story behind it:** [Karmouz to the Jetson](https://victor.oryntlabs.co), how a kid from Alexandria ended up building this, with field footage from Central Park.
 
-## 🏗️ System Architecture
+## Paper
+
+The full write-up, with hypotheses, method, results and limitations, is [PAPER.md](PAPER.md): *Chroma-Shift: A Space-Ground Collaborative System for Adaptive Vegetation Monitoring with Onboard Radiometric Intelligence*. The main methodological contribution is Section 2.3, an NDVI-ratio pseudo-invariant-feature method for inter-frame calibration that converged on all 12 field sessions where the standard brightness-based method failed on 4.
+
+## Team
+
+Chroma-Shift started as a solo build. For the NASA Space to Soil 2026 submission it became a three-person team:
+
+| Person | Owned |
+|--------|-------|
+| Victor Parker, founder and mission director | Hardware architecture, TensorRT engine, radiometric correction math, technical paper, NASA point of contact |
+| Joshua | AI systems: pipeline reliability, edge optimization, model hardening; engineering onboarding in the dashboard |
+| Laurel | Biology: symptomatic library, ground-truth field audits, botanical diagnostics; botanist onboarding in the dashboard |
+
+## Hardware reality
+
+Earlier versions of this codebase listed Red-Edge (700–740 nm) and SWIR (1570–1650 nm) as filter-wheel slots. Those are Sentinel-2 and Landsat bands from our calibration research, copied into the prototype's configuration by an AI assistant as if the filters were installed. They were not, and the IMX477 sensor cannot capture SWIR. I removed them before submission. What is actually in the wheel:
+
+| Slot | Filter | Status |
+|------|--------|--------|
+| 1 | Red 665 nm bandpass | Ordered, not delivered. Slot was empty for the 2026 field sessions |
+| 2 | NIR 865 nm bandpass | Installed |
+| 0, 3, 4 | none | Empty |
+
+Note: during the field sessions the "red" frame was captured through the empty slot, so it is an unfiltered image from the NoIR sensor and not a 665 nm band. NDVI values from those sessions are a broadband proxy for NDVI. File names and variable names keep the label `red_665nm` so existing captures still load.
+
+## How this was built
+
+I built the original system alone, then led the team above for the NASA submission. AI coding assistants wrote a meaningful share of the first-draft code under my direction; `.agent/workflows/` holds the instructions I gave them. Every hardware, latency and accuracy figure in this README was checked by me on the Jetson. The current model is the 4-class DINOv2 (93.94% on 1,800 validation samples, 6.7 ms); figures of 99.95% or 8.7 ms in older files refer to the earlier binary model.
+
+## System Architecture
 
 ```
   ┌─────────────────┐     ┌──────────────┐     ┌────────────────┐
@@ -20,7 +50,7 @@ Built for the **NASA Space to Soil 2026** challenge by a three-person team (see 
                         ▼
             ┌───────────────────────┐
             │  7-Layer Radiometric  │──── Self-calibrating, panel-free
-            │  Correction Pipeline  │     38 automated tests (paper §3.2)
+            │  Correction Pipeline  │     see Testing section
             │  (radiometric.py)     │
             └──────────┬────────────┘
                        │
@@ -60,19 +90,19 @@ Built for the **NASA Space to Soil 2026** challenge by a three-person team (see 
 
 ---
 
-## 🔬 Hardware
+## Hardware
 
 | Component | Model | Purpose |
 |-----------|-------|---------|
 | Compute | NVIDIA Jetson Orin Nano 8GB | Edge AI inference (10W) |
 | Camera | Arducam Multispectral Camera | Red + NIR imaging |
-| Filter Wheel | ZWO EFW Mini (5-slot) | Band selection (665nm, 850nm) |
-| Filters | Red (665nm), NIR (850nm) | NDVI band pair |
+| Filter Wheel | ZWO EFW Mini (5-slot) | Band selection (665nm planned, 865nm) |
+| Filters | NIR 865nm (installed, slot 2); Red 665nm (on order, slot 1) | NDVI band pair |
 | Storage | 1TB NVMe | Dataset & model storage |
 
 ---
 
-## 📊 7-Layer Self-Calibrating Pipeline
+## 7-Layer Self-Calibrating Pipeline
 
 The core innovation — converts raw camera values to scientifically comparable NDVI readings without calibration panels:
 
@@ -86,11 +116,22 @@ The core innovation — converts raw camera values to scientifically comparable 
 | 6 | Seasonal Phenology Baseline | Normal dormancy cycles | NASA HLS 2019–2023 |
 | 7 | Kalman Temporal Filter | Noise + transient artifacts | — |
 
-**Validated with 38 automated tests across six suites** (paper §3.2), covering individual layers, cross-layer integration on real field captures and synthetic frames, and edge cases found during development. Five more assertions in the confidence calibrator cross-check AI predictions against NDVI physics. The test suites live in the main development repository and are not part of this collaborator copy.
+### Testing
+
+Two suites. Only the first is in this repo today.
+
+| Suite | Where | What it covers |
+|-------|-------|----------------|
+| `test_pipeline.py` | this repo | 6 groups, 44 checks on a real field capture: seasonal baseline, solar position, Kalman filter, full 7-layer pipeline, temperature scaling, hardware watchdog |
+| `test_radiometric.py` | on the Jetson, not yet committed | 109 assertions on radiometric.py: edge cases, seasonal coverage, cross-layer interactions, known-input consistency |
+
+Run the first with `python3 test_pipeline.py`. The second will be added once it is cleaned of local paths.
+
+The paper (§3.2) reports 38 automated tests across six suites at submission time, plus five assertions in the confidence calibrator that cross-check AI predictions against NDVI physics.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Chroma-Shift/
@@ -126,7 +167,7 @@ Chroma-Shift/
 
 ---
 
-## 🧠 AI Models
+## AI Models
 
 ### DINOv2 Image Classifier (On-Device)
 
@@ -152,7 +193,7 @@ Chroma-Shift/
 
 ---
 
-## 🛡️ Fault Tolerance (Space-Grade)
+## Fault Tolerance (Space-Grade)
 
 The system never fully stops — it degrades gracefully:
 
@@ -173,7 +214,7 @@ The system never fully stops — it degrades gracefully:
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -235,7 +276,7 @@ Output:
 
 ---
 
-## 📊 NDVI Baseline
+## NDVI Baseline
 
 Ground-truth from **296 clear-sky observations** of Central Park via NASA HLS (2019-2023):
 
@@ -250,7 +291,7 @@ Ground-truth from **296 clear-sky observations** of Central Park via NASA HLS (2
 
 ---
 
-## 🌤️ Weather Integration
+## Weather Integration
 
 Real-time weather from the **NWS API** (Central Park / KNYC):
 
@@ -261,7 +302,7 @@ Real-time weather from the **NWS API** (Central Park / KNYC):
 
 ---
 
-## 🗄️ Supabase Schema
+## Supabase Schema
 
 | Table | Purpose |
 |-------|---------|
@@ -273,25 +314,11 @@ Real-time weather from the **NWS API** (Central Park / KNYC):
 
 ---
 
-## 👥 Team
-
-Chroma-Shift began as a solo build by Victor Parker. For the NASA Space to Soil 2026 submission he assembled and led a three-person team:
-
-| Person | Role | Owned |
-|--------|------|-------|
-| Victor Parker | Founder and mission director | Original system, hardware architecture, TensorRT engine, radiometric correction math, the paper, NASA point of contact |
-| Joshua | AI systems lead | Pipeline reliability and model hardening |
-| Laurel | Biological lead (botanist) | Ground-truth field audits |
-
-## 📄 Paper
-
-[PAPER.md](PAPER.md) states four claims (downlink size, agreement with NASA HLS baselines, 4-class accuracy, power) and tests each against a $710 prototype, a 1,800-image held-out set and 296 clear-sky HLS observations. The main methodological result is in Section 2.3: in grass-dominated scenes the standard brightness-based calibration failed on 4 of 12 field sessions, while the NDVI-ratio pseudo-invariant feature method converged on all 12. Section 3.3 and the conclusion list the limits of a 12-session, single-season test.
-
-## 📜 License
+## License
 
 MIT
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **NASA** — Harmonized Landsat Sentinel-2 data
 - **Meta AI** — DINOv2 foundation model

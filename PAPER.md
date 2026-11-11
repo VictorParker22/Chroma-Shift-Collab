@@ -1,6 +1,6 @@
 # Chroma-Shift: A Space-Ground Collaborative System for Adaptive Vegetation Monitoring with Onboard Radiometric Intelligence
 
-Victor Parker
+Victor Parker · [project story and field footage](https://victor.oryntlabs.co) · [code](https://github.com/VictorParker22/Chroma-Shift-Collab)
 
 ---
 
@@ -22,7 +22,7 @@ We test four specific claims in this paper: **(H1)** per-observation downlink un
 
 The pipeline described in this section directly addresses H1 (downlink reduction) and generates the corrected NDVI values evaluated against H2 (HLS accuracy). Unlike Φ-Sat-1's filtering approach, Chroma-Shift processes each captured frame through seven correction layers before classification occurs:
 
-1. **Exposure normalization** — The Red channel (665 nm) and NIR channel (850 nm) are captured at different gain and integration-time settings. This layer removes those differences and co-normalizes both channels to preserve the reflectance ratio.
+1. **Exposure normalization** — The Red channel and NIR channel (865 nm) are captured at different gain and integration-time settings. This layer removes those differences and co-normalizes both channels to preserve the reflectance ratio.
 2. **Dark-object atmospheric correction** — Path radiance is estimated from the darkest 1st-percentile pixels in each frame using the COST method from Chavez [1], which incorporates solar zenith angle and an estimated transmittance term.
 3. **Solar zenith correction** — A Meeus/NREL solar position algorithm computes the zenith angle for the capture timestamp and geographic location. Validation against NOAA's online calculator confirmed accuracy to approximately 0.01° across the 2020–2030 window.
 4. **Cloud transmittance** — A modified Kasten–Czeplak model with coefficients fitted to Northeast US conditions (k=0.87, p=1.9, based on Perez et al.) estimates cloud-related attenuation. Real-time cloud cover percentage is retrieved from the National Weather Service API.
@@ -64,7 +64,7 @@ Our modification replaces brightness stability with NDVI ratio stability as the 
 
 After implementing this change, the method converged on all 12 field sessions. Convergence was defined as the computed correction scale factor falling within the physically plausible range of 0.85 to 1.15 (less than 15% illumination drift) and the corrected NDVI difference between Red-first and NIR-first frame orderings dropping below 0.02. Across all 12 sessions, the mean post-correction NDVI bias was 0.008 with the ratio-based method, compared to 0.047 with the brightness-based method on the 8 sessions where it converged. The brightness-based method produced scale factors outside the plausible range on the remaining 4 sessions.
 
-Limitations of this validation should be noted. Twelve field sessions across three sites in the New York metropolitan area during February and March 2026 constitute a narrow test set. The tested surface types include grass, low shrubs, and bare soil in a temperate climate. Tall-canopy crops such as corn and soybean at peak growth, tropical vegetation, and irrigated desert agriculture have not been evaluated. Generalization of the PIF method to these conditions remains an open question.
+Limitations of this validation should be noted. Because the red bandpass filter was not installed, the index reported from these sessions is a broadband proxy for NDVI (865 nm NIR against unfiltered sensor response), not a 665/865 nm NDVI. Twelve field sessions across three sites in the New York metropolitan area during February and March 2026 constitute a narrow test set. The tested surface types include grass, low shrubs, and bare soil in a temperate climate. Tall-canopy crops such as corn and soybean at peak growth, tropical vegetation, and irrigated desert agriculture have not been evaluated. Generalization of the PIF method to these conditions remains an open question.
 
 ---
 
@@ -76,7 +76,7 @@ The prototype consists of three primary components:
 
 - **Processor**: NVIDIA Jetson Orin Nano — 8 GB unified RAM, 1024 CUDA cores, 10 W TDP. Cost: approximately $250.
 - **Camera**: Arducam IMX477 — 12.3 MP sensor, 1.55 μm pixel pitch. Cost: approximately $60.
-- **Filter wheel and filters**: ZWO EFW Mini (5-position) with Thorlabs FB665-10 (Red, 665 nm center, 10 nm FWHM) and Thorlabs FB850-40 (NIR, 850 nm, 40 nm FWHM). Cost: approximately $400.
+- **Filter wheel and filters**: ZWO EFW Mini (5-position) with an 865 nm NIR bandpass filter in slot 2. A Thorlabs FB665-10 red bandpass (665 nm center, 10 nm FWHM) is specified for slot 1 but had not been delivered for the field sessions reported here, so the red frame was captured through the empty slot as an unfiltered image from the NoIR sensor. Cost: approximately $400 including the red filter.
 
 Total hardware cost is $710. The Jetson Orin Nano uses an ARM Cortex-A78AE CPU, the same core architecture as the Xiphos Q8S-200 flight computer that has flown on several CubeSat missions. The Jetson itself is not radiation-tolerant. However, the software stack does not require fundamental redesign for flight-qualified hardware; porting to a radiation-hardened board with the same instruction set architecture is an engineering task rather than a research problem.
 

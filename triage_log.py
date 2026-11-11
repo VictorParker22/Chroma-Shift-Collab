@@ -203,7 +203,7 @@ class TriageLogger:
         sense = entry.get("sense", {}).get("data", {})
         if sense:
             steps.append(
-                f"SENSE: Captured Red (665nm) and NIR (850nm) frames. "
+                f"SENSE: Captured Red (665nm) and NIR (865nm) frames. "
                 f"Red mean DN: {sense.get('red_mean_dn', '?')}, "
                 f"NIR mean DN: {sense.get('nir_mean_dn', '?')}."
             )

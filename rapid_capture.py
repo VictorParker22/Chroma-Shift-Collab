@@ -105,7 +105,7 @@ def do_capture(cap, efw, label, output_dir):
 
     os.makedirs(output_dir, exist_ok=True)
     red_path = os.path.join(output_dir, f"{label}_{ts}_red_665nm.png")
-    nir_path = os.path.join(output_dir, f"{label}_{ts}_nir_833nm.png")
+    nir_path = os.path.join(output_dir, f"{label}_{ts}_nir_865nm.png")
 
     cv2.imwrite(red_path, red_frame)
     cv2.imwrite(nir_path, nir_frame)

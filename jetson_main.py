@@ -70,8 +70,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # Constants
 # ---------------------------------------------------------------------------
 CAMERA_INDEX = 0
-FILTER_SLOT_RED = 1          # 640-670 nm
-FILTER_SLOT_NIR = 2          # 850-880 nm
+FILTER_SLOT_RED = 1          # 665 nm filter on order; slot empty, frame is unfiltered
+FILTER_SLOT_NIR = 2          # 865 nm bandpass, installed
 SETTLE_TIME_SEC = 1.5
 FLUSH_FRAMES = 5
 EFW_POLL_INTERVAL = 0.3
@@ -94,16 +94,17 @@ FIELD_ZONES = {
     "T1": {"name": "USS Maine Monument", "baseline": 0.6493},
 }
 
-# Filter band lookup.
-# The field unit carries a Red bandpass and a NIR filter. Slots 3 and 4 are
-# empty: Red-Edge is a future concept, and SWIR is outside what the silicon
-# sensor can see. Earlier versions listed Sentinel-2 bands here.
+# Filter band lookup
+# Installed hardware only. Earlier versions listed Red-Edge and SWIR here: those
+# are Sentinel-2/Landsat bands from the calibration research, copied into this
+# table as if filters were installed. They were not (and the IMX477 cannot see
+# SWIR). Removed before the NASA submission. See README "Hardware reality".
 FILTER_BANDS = {
-    0: ("Clear",     "400-700"),
-    1: ("Red",       "640-670"),
-    2: ("NIR",       "850-880"),
-    3: ("Empty",     "-"),
-    4: ("Empty",     "-"),
+    0: ("Clear", "400-700"),
+    1: ("Red slot, no filter", "broadband"),
+    2: ("NIR",   "865"),
+    3: ("Empty", "-"),
+    4: ("Empty", "-"),
 }
 
 # Stress thresholds
