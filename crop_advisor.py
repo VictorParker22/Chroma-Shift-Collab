@@ -347,7 +347,7 @@ def generate_advisory(ndvi, seasonal_data, classification=None, weather=None,
         conf = classification.get("confidence", 0)
         if cls == "healthy_vegetation":
             ai_assessment = (
-                f"The onboard AI classifier (DINOv2, 99.95% validated accuracy) "
+                f"The onboard AI classifier (DINOv2, 93.94% validation accuracy) "
                 f"confirms healthy vegetation with {conf:.1f}% confidence."
             )
         elif cls == "stressed_vegetation":

@@ -100,8 +100,11 @@ FIELD_ZONES = {
 # table as if filters were installed. They were not (and the IMX477 cannot see
 # SWIR). Removed before the NASA submission. See README "Hardware reality".
 FILTER_BANDS = {
-    1: ("Red",  "665"),    # planned - filter on order, slot currently empty
-    2: ("NIR",  "865"),    # installed
+    0: ("Clear", "400-700"),
+    1: ("Red",   "665"),
+    2: ("NIR",   "865"),
+    3: ("Empty", "-"),
+    4: ("Empty", "-"),
 }
 
 # Stress thresholds

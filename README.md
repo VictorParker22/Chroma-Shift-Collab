@@ -4,7 +4,7 @@
 
 Chroma-Shift is an autonomous crop stress detection system that combines multispectral imaging (Red + NIR), a 7-layer self-calibrating radiometric correction pipeline, 4-class DINOv2 on-device classification (149 FPS via TensorRT), a cloud-hosted 90B Vision-Language Model, confidence threshold cross-checking, adaptive observation scheduling, and real-time weather correlation — all orchestrated from an NVIDIA Jetson Orin Nano.
 
-Built for the **NASA Space Apps Challenge**.
+Built for the **NASA Space to Soil 2026** challenge by a three-person team (see [Team](#-team)). The full write-up is in [PAPER.md](PAPER.md), and recorded field data is on the [Chroma-Shift Field Monitor](https://chromashift.oryntlabs.co).
 
 **The story behind it:** [Karmouz to the Jetson](https://victor.oryntlabs.co), how a kid from Alexandria ended up building this, with field footage from Central Park.
 
@@ -127,6 +127,8 @@ Two suites. Only the first is in this repo today.
 
 Run the first with `python3 test_pipeline.py`. The second will be added once it is cleaned of local paths.
 
+The paper (§3.2) reports 38 automated tests across six suites at submission time, plus five assertions in the confidence calibrator that cross-check AI predictions against NDVI physics.
+
 ---
 
 ## Project Structure
@@ -153,11 +155,7 @@ Chroma-Shift/
 ├── export_and_infer.py         # ONNX export + inference (auto-detects 2/4 class)
 ├── convert_tensorrt.py         # TensorRT FP16 engine builder (4-class, 149 FPS)
 │
-├── SCIENTIFIC_AUDIT.md         # Pipeline audit + layer scoring (8.0/10)
-├── TICKETS.md                  # Improvement tickets (Sprint 1 complete)
-├── TECHNICAL_REPORT.md         # Full technical report
-├── CHALLENGE_PAPER.md          # 5-page competition paper
-├── VIDEO_SCRIPT.md             # 3-minute video script
+├── PAPER.md                    # Full paper: method, results, limitations
 │
 ├── figures/                    # Paper figures (architecture, confusion matrix, bandwidth)
 ├── triage_logs/                # Autonomous triage decision logs
