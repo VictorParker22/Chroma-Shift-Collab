@@ -28,11 +28,11 @@ Earlier versions of this codebase listed Red-Edge (700â€“740 nm) and SWIR (1570â
 
 | Slot | Filter | Status |
 |------|--------|--------|
-| 1 | Red 665 nm bandpass | See note |
-| 2 | NIR bandpass | Installed |
+| 1 | Red 665 nm bandpass | Ordered, not delivered. Slot was empty for the 2026 field sessions |
+| 2 | NIR 865 nm bandpass | Installed |
 | 0, 3, 4 | none | Empty |
 
-Note: the paper lists Thorlabs FB665-10 and FB850-40. This README and the code currently say NIR 865 nm. One of the two is being corrected against the physical filter label.
+Note: during the field sessions the "red" frame was captured through the empty slot, so it is an unfiltered image from the NoIR sensor and not a 665 nm band. NDVI values from those sessions are a broadband proxy for NDVI. File names and variable names keep the label `red_665nm` so existing captures still load.
 
 ## How this was built
 

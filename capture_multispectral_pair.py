@@ -34,7 +34,7 @@ EFW_LIB_PATH = os.path.join(LIB_DIR, "libEFWFilter.so")
 # Constants
 # ---------------------------------------------------------------------------
 CAMERA_INDEX = 0                     # /dev/video0 (USB Arducam)
-FILTER_SLOT_RED = 1                  # 665 nm band-pass
+FILTER_SLOT_RED = 1                  # 665 nm band-pass on order; slot empty in 2026 field sessions
 FILTER_SLOT_NIR = 2                  # 865 nm band-pass
 SETTLE_TIME_SEC = 1.5                # mechanical settle after wheel rotation
 FLUSH_FRAMES = 5                     # frames to discard (clear USB buffer)

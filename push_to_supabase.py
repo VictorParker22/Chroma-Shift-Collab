@@ -68,7 +68,7 @@ FIELD_ZONES = {
 # Installed hardware only. See jetson_main.FILTER_BANDS for the audit note.
 FILTER_BANDS = {
     0: {"name": "Clear", "wavelength": "400-700 nm"},
-    1: {"name": "Red",   "wavelength": "665 nm"},
+    1: {"name": "Red slot, no filter", "wavelength": "broadband"},
     2: {"name": "NIR",   "wavelength": "865 nm"},
     3: {"name": "Empty", "wavelength": "-"},
     4: {"name": "Empty", "wavelength": "-"},
